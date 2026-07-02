@@ -4,6 +4,7 @@ import base64
 import json
 import mimetypes
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -135,8 +136,49 @@ class VLMJudge:
         self.timeout_sec = int(vlm.get("timeout_sec") or 120)
         self.temperature = float(vlm.get("temperature") or 0)
         self.max_video_mb = float(vlm.get("max_video_mb") or 500)
+        self.max_retries = int(vlm.get("max_retries") or 3)
+        self.retry_backoff_sec = float(vlm.get("retry_backoff_sec") or 2)
         if not self.model or not self.api_key or not self.base_url:
             raise ValueError("vlm.model, vlm.api_key, and vlm.base_url are required in eval/config.yaml")
+
+    def _post_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps(payload).encode("utf-8")
+        retryable_http_codes = {408, 409, 429, 500, 502, 503, 504}
+        last_error: BaseException | None = None
+        for attempt in range(1, self.max_retries + 1):
+            request = urllib.request.Request(
+                f"{self.base_url}/chat/completions",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                response_body = exc.read().decode("utf-8", errors="replace")[-2000:]
+                if exc.code not in retryable_http_codes or attempt >= self.max_retries:
+                    raise RuntimeError(f"VLM request failed: HTTP {exc.code}: {response_body}") from exc
+                print(
+                    f"[VLMJudge] HTTP {exc.code} on attempt {attempt}/{self.max_retries}; retrying...",
+                    flush=True,
+                )
+            except (urllib.error.URLError, TimeoutError, ConnectionResetError, BrokenPipeError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise RuntimeError(
+                        f"VLM request failed after {self.max_retries} attempts: {exc}"
+                    ) from exc
+                print(
+                    f"[VLMJudge] Network error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
+                    flush=True,
+                )
+            time.sleep(self.retry_backoff_sec * attempt)
+        raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {last_error}")
 
     def score(self, output_video: Path, task: dict[str, Any], run_record: dict[str, Any]) -> dict[str, Any]:
         video_size_bytes = output_video.stat().st_size
@@ -168,21 +210,7 @@ class VLMJudge:
                 {"role": "user", "content": content},
             ],
         }
-        request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")[-2000:]
-            raise RuntimeError(f"VLM request failed: HTTP {exc.code}: {body}") from exc
+        raw = self._post_chat_completion(payload)
 
         content_text = raw["choices"][0]["message"]["content"]
         parsed = _extract_json(content_text)
