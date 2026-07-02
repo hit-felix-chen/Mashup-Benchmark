@@ -26,6 +26,8 @@ Default seven-metric weights are `BCS=0.20`, `AEC=0.20`, `OQ=0.20`, and `IF/VQ/T
 
 The VLM judge sends the final rendered `output.mp4` directly to the configured model as a video input. It does not sample still frames for VLM scoring.
 
+By default, `vlm.provider: dashscope` uses the DashScope SDK and passes the local rendered video as a `file://` input. The SDK uploads the video before calling the model, which avoids sending a large base64 video inside a single JSON request. Set `vlm.provider: openai_compatible` only when you explicitly want to use the OpenAI-compatible HTTP endpoint and base64 data URLs.
+
 Copy the example config and fill in credentials:
 
 ```bash

@@ -5,6 +5,7 @@ description = "Benchmark metadata, adapters, and evaluators for long-video music
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "dashscope>=1.24.6",
     "jsonschema>=4.23.0",
     "pyyaml>=6.0.2",
 ]

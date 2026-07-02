@@ -7,8 +7,12 @@ import re
 import time
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
+
+import dashscope
+from dashscope import MultiModalConversation
 
 SYSTEM_PROMPT = """You are a strict evaluator for short-form video editing benchmarks. Score only what is visible in the provided video and described task metadata. Return JSON only."""
 
@@ -88,6 +92,13 @@ def _video_content(path: Path) -> dict[str, Any]:
     return {"type": "video_url", "video_url": {"url": f"data:{mime_type};base64,{encoded}"}}
 
 
+def _video_content_dashscope(path: Path, fps: float, max_frames: int | None) -> dict[str, Any]:
+    content: dict[str, Any] = {"video": f"file://{path.resolve()}", "fps": fps}
+    if max_frames is not None:
+        content["max_frames"] = max_frames
+    return content
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
@@ -130,6 +141,7 @@ def _normalize_diagnostics(value: Any) -> dict[str, Any]:
 class VLMJudge:
     def __init__(self, config: dict[str, Any]):
         vlm = config.get("vlm") or {}
+        self.provider = str(vlm.get("provider") or "dashscope").strip().lower()
         self.model = str(vlm.get("model") or "")
         self.api_key = str(vlm.get("api_key") or "")
         self.base_url = str(vlm.get("base_url") or "").rstrip("/")
@@ -138,8 +150,18 @@ class VLMJudge:
         self.max_video_mb = float(vlm.get("max_video_mb") or 500)
         self.max_retries = int(vlm.get("max_retries") or 3)
         self.retry_backoff_sec = float(vlm.get("retry_backoff_sec") or 2)
+        self.video_fps = float(vlm.get("video_fps") or 2)
+        self.max_video_frames = vlm.get("max_video_frames")
+        self.max_video_frames = None if self.max_video_frames is None else int(self.max_video_frames)
         if not self.model or not self.api_key or not self.base_url:
             raise ValueError("vlm.model, vlm.api_key, and vlm.base_url are required in eval/config.yaml")
+        if self.provider not in {"dashscope", "openai_compatible"}:
+            raise ValueError("vlm.provider must be either 'dashscope' or 'openai_compatible'")
+
+    def _dashscope_base_url(self) -> str:
+        if self.base_url.endswith("/compatible-mode/v1"):
+            return self.base_url[: -len("/compatible-mode/v1")] + "/api/v1"
+        return self.base_url
 
     def _post_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
@@ -180,6 +202,62 @@ class VLMJudge:
             time.sleep(self.retry_backoff_sec * attempt)
         raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {last_error}")
 
+    def _post_multimodal_conversation(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        dashscope.base_http_api_url = self._dashscope_base_url()
+        retryable_http_codes = {408, 409, 429, 500, 502, 503, 504}
+        last_error: BaseException | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = MultiModalConversation.call(
+                    api_key=self.api_key,
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                )
+                if response.status_code == HTTPStatus.OK:
+                    content = response.output.choices[0].message.content
+                    content_text = content[0]["text"] if content else ""
+                    return {
+                        "choices": [{"message": {"content": content_text}}],
+                        "usage": dict(response.usage or {}),
+                        "request_id": response.request_id,
+                    }
+
+                message = f"DashScope {response.status_code} {response.code}: {response.message}"
+                last_error = RuntimeError(message)
+                if response.status_code not in retryable_http_codes or attempt >= self.max_retries:
+                    raise RuntimeError(message)
+                print(
+                    f"[VLMJudge] DashScope {response.status_code} on attempt {attempt}/{self.max_retries}; retrying...",
+                    flush=True,
+                )
+                time.sleep(self.retry_backoff_sec * attempt)
+            except RuntimeError as exc:
+                if str(exc).startswith("DashScope "):
+                    raise
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise RuntimeError(
+                        f"VLM request failed after {self.max_retries} attempts: {exc}"
+                    ) from exc
+                print(
+                    f"[VLMJudge] DashScope SDK error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
+                    flush=True,
+                )
+                time.sleep(self.retry_backoff_sec * attempt)
+            except Exception as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise RuntimeError(
+                        f"VLM request failed after {self.max_retries} attempts: {exc}"
+                    ) from exc
+                print(
+                    f"[VLMJudge] DashScope SDK error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
+                    flush=True,
+                )
+                time.sleep(self.retry_backoff_sec * attempt)
+        raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {last_error}")
+
     def score(self, output_video: Path, task: dict[str, Any], run_record: dict[str, Any]) -> dict[str, Any]:
         video_size_bytes = output_video.stat().st_size
         max_video_bytes = int(self.max_video_mb * 1024 * 1024)
@@ -198,19 +276,32 @@ class VLMJudge:
             target_shot_length_sec=task["task"]["target_shot_length_sec"],
             actual_output_length_sec=run_record.get("actual_output_length_sec"),
         )
-        content: list[dict[str, Any]] = [
-            _video_content(output_video),
-            {"type": "text", "text": user_text},
-        ]
-        payload = {
-            "model": self.model,
-            "temperature": self.temperature,
-            "messages": [
+        if self.provider == "dashscope":
+            messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
-        }
-        raw = self._post_chat_completion(payload)
+                {
+                    "role": "user",
+                    "content": [
+                        _video_content_dashscope(output_video, self.video_fps, self.max_video_frames),
+                        {"text": user_text},
+                    ],
+                },
+            ]
+            raw = self._post_multimodal_conversation(messages)
+        else:
+            content: list[dict[str, Any]] = [
+                _video_content(output_video),
+                {"type": "text", "text": user_text},
+            ]
+            payload = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+            }
+            raw = self._post_chat_completion(payload)
 
         content_text = raw["choices"][0]["message"]["content"]
         parsed = _extract_json(content_text)
@@ -226,6 +317,7 @@ class VLMJudge:
             "usage": raw.get("usage"),
             "model": self.model,
             "input_type": "video",
+            "vlm_provider": self.provider,
             "score_scale": "likert_1_5",
             "video_size_bytes": video_size_bytes,
         }

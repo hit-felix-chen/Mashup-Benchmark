@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +54,7 @@ def main() -> int:
     if not run_dir.is_absolute():
         run_dir = ROOT / run_dir
     run_id = run_dir.name
-    timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).astimezone().strftime("%Y%m%d_%H%M%S")
     eval_id = args.eval_id or f"{run_id}_eval_{timestamp}"
     eval_dir = ROOT / "eval_results" / eval_id
 
@@ -135,6 +135,7 @@ def main() -> int:
             score_record["judge"] = {
                 "type": "vlm_as_judge",
                 "model": vlm_result.get("model"),
+                "provider": vlm_result.get("vlm_provider"),
                 "input_type": vlm_result.get("input_type"),
                 "score_scale": vlm_result.get("score_scale"),
                 "video_size_bytes": vlm_result.get("video_size_bytes"),
@@ -156,7 +157,7 @@ def main() -> int:
         "run_id": run_id,
         "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
         "evaluation_scores": str(scores_path.relative_to(ROOT)),
-        "created_at": datetime.now(timezone.utc).astimezone().isoformat(),
+        "created_at": datetime.now(UTC).astimezone().isoformat(),
         "skip_vlm": args.skip_vlm,
     })
     write_json(eval_dir / "summary.json", summary)
