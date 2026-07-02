@@ -5,11 +5,26 @@ from typing import Any
 from eval.config import weights_from_config
 
 METRICS = ["IF", "BCS", "AEC", "VQ", "TC", "NC", "OQ"]
+LIKERT_METRICS = {"IF", "VQ", "TC", "NC", "OQ"}
+
+
+def normalize_score_for_quality(metric: str, value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    value = float(value)
+    if metric in LIKERT_METRICS:
+        likert = max(1.0, min(5.0, value))
+        return (likert - 1.0) / 4.0 * 100.0
+    return value
 
 
 def compute_quality(scores: dict[str, float | None], config: dict[str, Any]) -> float | None:
     weights = weights_from_config(config)
-    available = {metric: scores.get(metric) for metric in METRICS if scores.get(metric) is not None}
+    available = {
+        metric: normalize_score_for_quality(metric, scores.get(metric))
+        for metric in METRICS
+        if scores.get(metric) is not None
+    }
     if not available:
         return None
     weight_sum = sum(weights[m] for m in available)

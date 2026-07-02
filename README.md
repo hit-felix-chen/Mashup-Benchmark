@@ -122,6 +122,8 @@ Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
 - 人类评估指标：`OQ = 0.20`。
 - 如果没有人类 `OQ` 分数，则对可用的 6 个指标自动归一化：`BCS = 0.25`，`AEC = 0.25`，`IF/VQ/TC/NC = 0.125`。
 
+VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Likert 量表；计算 `Quality` 时会按 `(score - 1) / 4 * 100` 转换为 0-100 尺度。
+
 指标含义：
 
 - IF：Instruction Following，指令遵循。
@@ -130,7 +132,7 @@ Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
 - VQ：Visual Quality，视觉质量。
 - TC：Transition Continuity，片段和转场连续性。
 - NC：Narrative Coherence，叙事连贯性。
-- OQ：Overall Quality，人类整体质量评分，可选。
+- OQ：Overall Quality，人类整体质量评分，可选，1-5 Likert 量表。
 
 效率单独报告，包括 API 成本和端到端耗时。可运行评测器的说明见 `eval/README.md`。
 

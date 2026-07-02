@@ -18,11 +18,13 @@ Single-modal quality:
 
 Human preference:
 
-- `OQ`: optional overall quality rating from human evaluation.
+- `OQ`: optional 1-5 Likert overall quality rating from human evaluation.
 
-Default seven-metric weights are `BCS=0.20`, `AEC=0.20`, `OQ=0.20`, and `IF/VQ/TC/NC=0.10` each. If `OQ` or any other metric is missing, the evaluator renormalizes over available metrics.
+Default seven-metric weights are `BCS=0.20`, `AEC=0.20`, `OQ=0.20`, and `IF/VQ/TC/NC=0.10` each. VLM scores and human `OQ` are stored as raw 1-5 Likert scores; for `Quality`, they are converted with `(score - 1) / 4 * 100`. If `OQ` or any other metric is missing, the evaluator renormalizes over available metrics.
 
 ## Configure VLM Judge
+
+The VLM judge sends the final rendered `output.mp4` directly to the configured model as a video input. It does not sample still frames for VLM scoring.
 
 Copy the example config and fill in credentials:
 

@@ -47,8 +47,8 @@
             "number",
             "null"
           ],
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 1,
+          "maximum": 5
         },
         "BCS": {
           "type": [
@@ -71,32 +71,32 @@
             "number",
             "null"
           ],
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 1,
+          "maximum": 5
         },
         "TC": {
           "type": [
             "number",
             "null"
           ],
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 1,
+          "maximum": 5
         },
         "NC": {
           "type": [
             "number",
             "null"
           ],
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 1,
+          "maximum": 5
         },
         "OQ": {
           "type": [
             "number",
             "null"
           ],
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 1,
+          "maximum": 5
         },
         "Quality": {
           "type": [
@@ -122,6 +122,55 @@
         "object",
         "string"
       ]
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "matched_prompt_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_prompt_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visual_quality_issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "transition_issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "narrative_issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "length_issue": {
+          "enum": [
+            "none",
+            "too_short",
+            "too_long"
+          ]
+        },
+        "uncertain_observations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

@@ -122,6 +122,8 @@ Weighting policy:
 - Human evaluation metric: `OQ = 0.20`.
 - If human `OQ` is unavailable, the available 6 metrics are automatically renormalized: `BCS = 0.25`, `AEC = 0.25`, and `IF/VQ/TC/NC = 0.125`.
 
+Raw VLM-as-judge scores for `IF/VQ/TC/NC` and the human `OQ` score use a 1-5 Likert scale. For `Quality`, they are converted to the 0-100 scale with `(score - 1) / 4 * 100`.
+
 Metrics:
 
 - IF: Instruction Following.
@@ -130,7 +132,7 @@ Metrics:
 - VQ: Visual Quality.
 - TC: Transition Continuity.
 - NC: Narrative Coherence.
-- OQ: Overall Quality, optional human rating.
+- OQ: Overall Quality, optional human rating on a 1-5 Likert scale.
 
 Efficiency is reported separately as API cost and end-to-end latency. See `eval/README.md` for the runnable evaluator.
 

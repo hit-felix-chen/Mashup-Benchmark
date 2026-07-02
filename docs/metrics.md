@@ -1,11 +1,17 @@
 # Evaluation Metrics
 
-The evaluator supports seven quality metrics: two local automatic metrics, four VLM-as-judge metrics, and one optional human metric. All component scores are normalized to `[0, 100]`.
+The evaluator supports seven quality metrics: two local automatic metrics, four VLM-as-judge metrics, and one optional human metric. Local automatic metrics and `Quality` are reported on `[0, 100]`. VLM-as-judge metrics and the optional human `OQ` metric are reported as raw 1-5 Likert scores and normalized internally for `Quality`.
 
 ## Quality Score
 
 ```text
 Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
+```
+
+For `Quality`, Likert scores are converted to `[0, 100]` by:
+
+```text
+normalized_vlm_score = (likert_score - 1) / 4 * 100
 ```
 
 Default seven-metric weights:
@@ -39,7 +45,7 @@ The implementation also renormalizes automatically for any other missing metric,
 
 Checks whether the output follows the prompt's requested subject, event, emotion, style, and narrative intent.
 
-Implementation: VLM-as-judge. The evaluator samples frames from the generated video and asks the configured VLM to score consistency with the task prompt.
+Implementation: VLM-as-judge. The evaluator sends the final rendered video to the configured VLM and asks it to score consistency with the task prompt on a 1-5 Likert scale.
 
 ### BCS: Beat-Cut Synchronization
 
@@ -59,19 +65,19 @@ Implementation: the evaluator computes frame-difference motion energy and audio 
 
 Scores clarity, composition, subject prominence, and absence of obvious technical defects.
 
-Implementation: VLM-as-judge over sampled frames.
+Implementation: VLM-as-judge over the final rendered video on a 1-5 Likert scale.
 
 ### TC: Transition Continuity
 
 Scores whether neighboring clips connect naturally in semantics, movement, and composition.
 
-Implementation: VLM-as-judge over an ordered frame sequence.
+Implementation: VLM-as-judge over the final rendered video sequence on a 1-5 Likert scale.
 
 ### NC: Narrative Coherence
 
 Scores whether the complete edit has a coherent structure, emotional progression, or story arc.
 
-Implementation: VLM-as-judge using sampled frames plus task metadata.
+Implementation: VLM-as-judge using the final rendered video plus task metadata on a 1-5 Likert scale.
 
 ## Human Preference
 
@@ -79,7 +85,7 @@ Implementation: VLM-as-judge using sampled frames plus task metadata.
 
 Scores whether a viewer considers the final video good, natural, professional, and publishable.
 
-Implementation: optional human rating. If a run record provides `human_scores.OQ` or `scores.OQ`, the evaluator includes it in `Quality`; otherwise the score is computed from the available automatic and VLM metrics only.
+Implementation: optional human rating on a 1-5 Likert scale. If a run record provides `human_scores.OQ` or `scores.OQ`, the evaluator includes it in `Quality` after converting it with `(score - 1) / 4 * 100`; otherwise the score is computed from the available automatic and VLM metrics only.
 
 ## Efficiency
 

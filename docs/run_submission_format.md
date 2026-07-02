@@ -54,7 +54,7 @@ Required fields:
 Recommended optional fields:
 
 - `api_cost_usd`: total API cost for the task.
-- `human_scores.OQ` or `scores.OQ`: optional human overall quality score on `[0, 100]`; if present, it is included in the seven-metric `Quality` score.
+- `human_scores.OQ` or `scores.OQ`: optional human overall quality score on a 1-5 Likert scale; if present, it is normalized with `(score - 1) / 4 * 100` and included in the seven-metric `Quality` score.
 - `code_commit`: source code commit used for the method.
 - `config`: key model and algorithm settings.
 - `artifacts`: paths to logs, shot plans, intermediate plans, or traces.

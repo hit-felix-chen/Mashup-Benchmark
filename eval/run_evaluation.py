@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from eval.aggregate_scores import compute_quality, summarize
+from eval.aggregate_scores import compute_quality, normalize_score_for_quality, summarize
 from eval.config import load_config
 from eval.evaluators.vlm_judge import VLMJudge
 from eval.metrics.alignment import audio_visual_energy_correspondence, beat_cut_synchronization
@@ -112,17 +112,32 @@ def main() -> int:
         record_scores = record.get("scores") or {}
         oq_score = human_scores.get("OQ", record_scores.get("OQ"))
         if oq_score is not None:
-            score_record["scores"]["OQ"] = float(oq_score)
-            score_record["metric_details"]["OQ"] = {"source": "human_scores" if "OQ" in human_scores else "scores"}
+            oq_score = max(1.0, min(5.0, float(oq_score)))
+            score_record["scores"]["OQ"] = oq_score
+            score_record["metric_details"]["OQ"] = {
+                "source": "human_scores" if "OQ" in human_scores else "scores",
+                "scale": "likert_1_5",
+                "raw_score": oq_score,
+                "normalized_score": normalize_score_for_quality("OQ", oq_score),
+            }
 
         if judge is not None:
             vlm_result = judge.score(output_video, task, record)
             score_record["scores"].update(vlm_result["scores"])
             score_record["rationale"].update(vlm_result.get("rationale") or {})
+            score_record["diagnostics"] = vlm_result.get("diagnostics") or {}
+            for metric, value in vlm_result["scores"].items():
+                score_record["metric_details"][metric] = {
+                    "scale": vlm_result.get("score_scale"),
+                    "raw_score": value,
+                    "normalized_score": normalize_score_for_quality(metric, value),
+                }
             score_record["judge"] = {
                 "type": "vlm_as_judge",
                 "model": vlm_result.get("model"),
-                "num_frames": vlm_result.get("num_frames"),
+                "input_type": vlm_result.get("input_type"),
+                "score_scale": vlm_result.get("score_scale"),
+                "video_size_bytes": vlm_result.get("video_size_bytes"),
                 "usage": vlm_result.get("usage"),
             }
 
