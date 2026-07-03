@@ -212,7 +212,46 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 - 项目：[https://github.com/AK-DREAM/DIRECT-Claw](https://github.com/AK-DREAM/DIRECT-Claw)
 - Fork：[https://github.com/hit-cxf/DIRECT-Claw](https://github.com/hit-cxf/DIRECT-Claw)
 - 论文：[https://arxiv.org/abs/2604.04875](https://arxiv.org/abs/2604.04875)
-- 当前状态：待接入 benchmark adapter。
+- 当前状态：已提供 benchmark adapter。
+
+服务器复现实验环境：
+
+| 项目 | 配置 |
+| ---- | ---- |
+| 机器 | AutoDL Ubuntu 22.04 |
+| GPU | NVIDIA GeForce RTX 4090 24GB |
+| DIRECT-Claw 环境 | `/root/miniconda3/envs/direct/bin/python` |
+| Benchmark 环境 | benchmark 根目录下使用 Python/uv |
+| DIRECT-Claw 根目录 | `/root/autodl-tmp/DIRECT-Claw` |
+| Benchmark 根目录 | `/root/autodl-tmp/Mashup-Benchmark` |
+
+运行单个任务：
+
+```bash
+cd /root/autodl-tmp/Mashup-Benchmark
+/root/miniconda3/envs/direct/bin/python scripts/run_direct_claw.py \
+  --task-id task_001 \
+  --run-id direct_claw_benchmark_smoke \
+  --overwrite
+```
+
+批量运行全部任务：
+
+```bash
+cd /root/autodl-tmp/Mashup-Benchmark
+/root/miniconda3/envs/direct/bin/python scripts/run_direct_claw.py \
+  --all \
+  --run-id direct_claw_benchmark
+```
+
+DIRECT-Claw adapter 会把 benchmark 媒体软链到 DIRECT-Claw 自己的 `data/benchmark_adapter/` 目录，为每个视频生成 `source_videos.csv`，为每个任务生成 DIRECT-Claw 原生 `task.yaml`，再调用：
+
+```bash
+python -m src.main_preprocess --csv ...
+python -m src.main_agent --yaml_path ... --result_path ... --log_path ...
+```
+
+视频特征缓存保存在 DIRECT-Claw 的 `output/benchmark_adapter/` 和 `output/benchmark_adapter/videos/` 相关路径中；默认复用已有特征缓存，需要强制重算时使用 `--force-preprocess`。如果当前 shell 中没有 `ffmpeg`，adapter 会优先使用 `imageio_ffmpeg` 自带二进制创建私有 shim，不修改系统环境。
 
 ### VideoAgent
 
