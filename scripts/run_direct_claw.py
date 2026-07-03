@@ -24,6 +24,22 @@ TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 ADAPTER_DATA_ROOT = Path("benchmark_adapter")
 
 
+def normalize_omp_num_threads(value: str | None) -> str:
+    if value is None:
+        return "1"
+    value = value.strip()
+    if not value:
+        return "1"
+    try:
+        parsed = int(value)
+    except ValueError:
+        return "1"
+    return str(parsed) if parsed > 0 else "1"
+
+
+os.environ["OMP_NUM_THREADS"] = normalize_omp_num_threads(os.environ.get("OMP_NUM_THREADS"))
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 
@@ -192,7 +208,8 @@ def stream_command(cmd: list[str], log_path: Path, *, cwd: Path, dry_run: bool =
             return 0
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        env["OMP_NUM_THREADS"] = env.get("OMP_NUM_THREADS", "1")
+        env["OMP_NUM_THREADS"] = normalize_omp_num_threads(env.get("OMP_NUM_THREADS"))
+        env["HF_HUB_OFFLINE"] = env.get("HF_HUB_OFFLINE") or "1"
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
@@ -241,6 +258,30 @@ def ensure_ffmpeg_on_path(direct_claw_root: Path, direct_claw_python: Path) -> P
 
     os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
     return bin_dir
+
+
+def ensure_u2net_weights(direct_claw_root: Path) -> Path:
+    expected = direct_claw_root / "U-2-Net" / "saved_models" / "u2net" / "u2net.pth"
+    if expected.exists():
+        return expected
+
+    candidates = [
+        direct_claw_root / "U-2-Net" / "saved_models" / "u2net_portrait.pth",
+        direct_claw_root / "U-2-Net" / "saved_models" / "u2net_portrait" / "u2net_portrait.pth",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            expected.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                expected.symlink_to(candidate.relative_to(expected.parent))
+            except Exception:
+                shutil.copy2(candidate, expected)
+            return expected
+
+    raise FileNotFoundError(
+        "DIRECT-Claw U2NET weights not found. Expected "
+        f"{expected} or one of: {', '.join(str(path) for path in candidates)}"
+    )
 
 
 def load_existing_records(run_dir: Path) -> list[dict[str, Any]]:
@@ -648,6 +689,7 @@ def main() -> int:
     if args.force_preprocess and args.skip_preprocess:
         raise SystemExit("--force-preprocess and --skip-preprocess cannot be used together.")
     ffmpeg_shim_dir = ensure_ffmpeg_on_path(direct_claw_root, direct_claw_python)
+    u2net_weight_path = ensure_u2net_weights(direct_claw_root)
 
     task_file = benchmark_root / TASK_FILE_REL
     tasks = load_tasks(task_file)
@@ -693,6 +735,7 @@ def main() -> int:
             "skip_preprocess": bool(args.skip_preprocess),
             "cfg_path": str(cfg_path),
             "ffmpeg_shim_dir": str(ffmpeg_shim_dir) if ffmpeg_shim_dir else None,
+            "u2net_weight_path": str(u2net_weight_path),
         },
     }
 
