@@ -51,7 +51,7 @@ Implementation: VLM-as-judge. The evaluator sends the final rendered video to th
 
 Measures whether visual cuts align with music beats or energy peaks.
 
-Implementation: the evaluator runs full-frame scene-change detection on the final rendered video, extracts audio RMS peaks as beats, computes each detected visual cut's distance to the nearest beat, and averages `exp(-distance / tau)`. It does not read the edit timeline, so internal cuts inside selected source clips are counted.
+Implementation: the evaluator runs full-frame scene-change detection on the final rendered video, extracts audio RMS peaks as beats, computes each detected visual cut's distance to the nearest beat, and averages `exp(-distance / tau)`. The default `tau=0.196` makes a 100 ms offset score about 60/100. It does not read the edit timeline, so internal cuts inside selected source clips are counted.
 
 ### AEC: Audio-Visual Energy Correspondence
 

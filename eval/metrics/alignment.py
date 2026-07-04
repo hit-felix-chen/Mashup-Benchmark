@@ -13,7 +13,7 @@ def beat_cut_synchronization(
     scene_threshold: float = 0.30,
     scene_min_gap_sec: float = 0.25,
     beat_window_sec: float = 0.05,
-    tau_sec: float = 0.12,
+    tau_sec: float = 0.196,
 ) -> dict[str, Any]:
     cuts = detect_visual_cuts(
         output_video,

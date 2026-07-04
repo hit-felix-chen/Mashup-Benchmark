@@ -94,7 +94,7 @@ def main() -> int:
             scene_threshold=float(auto_cfg.get("scene_threshold", 0.30)),
             scene_min_gap_sec=float(auto_cfg.get("scene_min_gap_sec", 0.25)),
             beat_window_sec=float(auto_cfg.get("beat_window_sec", 0.05)),
-            tau_sec=float(auto_cfg.get("bcs_tau_sec", 0.12)),
+            tau_sec=float(auto_cfg.get("bcs_tau_sec", 0.196)),
         )
         aec = audio_visual_energy_correspondence(
             output_video,

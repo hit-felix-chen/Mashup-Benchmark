@@ -94,7 +94,7 @@ def load_config(path: str | Path | None = None, require_vlm: bool = True) -> dic
     data["automatic_metrics"].setdefault("scene_threshold", 0.30)
     data["automatic_metrics"].setdefault("scene_min_gap_sec", 0.25)
     data["automatic_metrics"].setdefault("beat_window_sec", 0.05)
-    data["automatic_metrics"].setdefault("bcs_tau_sec", 0.12)
+    data["automatic_metrics"].setdefault("bcs_tau_sec", 0.196)
     return data
 
 

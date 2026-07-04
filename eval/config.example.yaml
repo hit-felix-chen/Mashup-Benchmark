@@ -33,4 +33,5 @@ automatic_metrics:
   scene_threshold: 0.30
   scene_min_gap_sec: 0.25
   beat_window_sec: 0.05
-  bcs_tau_sec: 0.12
+  # Exponential BCS tau. exp(-0.10 / 0.196) ~= 0.60, so a 100ms offset is a passing cut.
+  bcs_tau_sec: 0.196
