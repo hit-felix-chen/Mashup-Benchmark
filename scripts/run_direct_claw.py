@@ -385,6 +385,10 @@ def direct_rel_audio_path(task: dict[str, Any], audio_path: Path) -> Path:
     return ADAPTER_DATA_ROOT / "audios" / task["audio"]["id"] / audio_path.name
 
 
+def direct_rel_trimmed_audio_path(task: dict[str, Any], audio_path: Path) -> Path:
+    return ADAPTER_DATA_ROOT / "audios_trimmed" / task["id"] / audio_path.name
+
+
 def direct_rel_csv_path(task: dict[str, Any]) -> Path:
     return ADAPTER_DATA_ROOT / "tasks" / f"{task['video']['id']}.csv"
 
@@ -397,12 +401,27 @@ def direct_feature_path(direct_claw_root: Path, rel_video_path: Path) -> Path:
     return direct_claw_root / "output" / rel_video_path.with_suffix(".pkl")
 
 
+def trim_audio_to_duration(src: Path, dst: Path, target_sec: float) -> Path:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(src),
+        "-t", f"{target_sec:.3f}",
+        "-vn", "-acodec", "libmp3lame", "-q:a", "2",
+        str(dst),
+    ]
+    subprocess.check_call(cmd)
+    return dst
+
+
 def prepare_direct_inputs(
     *,
     task: dict[str, Any],
     benchmark_root: Path,
     direct_claw_root: Path,
     artifacts_dir: Path,
+    trim_audio_to_target: bool,
+    dry_run: bool,
 ) -> dict[str, Path | float]:
     video_path, audio_path = task_paths(task, benchmark_root)
     if not video_path.exists():
@@ -412,12 +431,20 @@ def prepare_direct_inputs(
 
     rel_video = direct_rel_video_path(task, video_path)
     rel_audio = direct_rel_audio_path(task, audio_path)
+    rel_music = direct_rel_trimmed_audio_path(task, audio_path) if trim_audio_to_target else rel_audio
     rel_csv = direct_rel_csv_path(task)
     rel_task_yaml = direct_rel_task_yaml_path(task)
+    target_output = float(task["task"]["target_output_length_sec"])
 
     direct_data_dir = direct_claw_root / "data"
     symlink_or_copy(video_path, direct_data_dir / rel_video)
     symlink_or_copy(audio_path, direct_data_dir / rel_audio)
+    if trim_audio_to_target:
+        trimmed_audio_path = direct_data_dir / rel_music
+        if not dry_run:
+            trim_audio_to_duration(audio_path, trimmed_audio_path, target_output)
+        else:
+            trimmed_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
     csv_path = direct_data_dir / rel_csv
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -433,19 +460,23 @@ def prepare_direct_inputs(
         {
             "video_csv": rel_csv.as_posix(),
             "video_fps": round(fps, 6),
-            "music_path": rel_audio.as_posix(),
+            "music_path": rel_music.as_posix(),
             "user_prompt": task["task"]["prompt"],
         },
     )
 
     copy_if_exists(csv_path, artifacts_dir / "source_videos.csv")
     copy_if_exists(task_yaml_path, artifacts_dir / "direct_claw_task.yaml")
+    if trim_audio_to_target and not dry_run:
+        copy_if_exists(direct_data_dir / rel_music, artifacts_dir / "trimmed_audio.mp3")
 
     return {
         "video_path": video_path,
         "audio_path": audio_path,
+        "music_path": direct_data_dir / rel_music,
         "direct_rel_video": rel_video,
         "direct_rel_audio": rel_audio,
+        "direct_rel_music": rel_music,
         "direct_rel_csv": rel_csv,
         "direct_rel_task_yaml": rel_task_yaml,
         "csv_path": csv_path,
@@ -469,6 +500,7 @@ def run_one_task(
     dry_run: bool,
     force_preprocess: bool,
     skip_preprocess: bool,
+    trim_audio_to_target: bool,
     cfg_path: Path,
 ) -> dict[str, Any]:
     task_id = task["id"]
@@ -494,6 +526,8 @@ def run_one_task(
         benchmark_root=benchmark_root,
         direct_claw_root=direct_claw_root,
         artifacts_dir=artifacts_dir,
+        trim_audio_to_target=trim_audio_to_target,
+        dry_run=dry_run,
     )
     feature_path = Path(prepared["feature_path"])
     task_yaml_path = Path(prepared["task_yaml_path"])
@@ -571,6 +605,7 @@ def run_one_task(
         "config": {
             "video_path": str(prepared["video_path"]),
             "audio_path": str(prepared["audio_path"]),
+            "music_path": str(prepared["music_path"]),
             "direct_claw_root": str(direct_claw_root),
             "direct_claw_python": str(direct_claw_python),
             "cfg_path": str(cfg_path),
@@ -578,8 +613,10 @@ def run_one_task(
             "video_fps": float(prepared["fps"]),
             "force_preprocess": force_preprocess,
             "skip_preprocess": skip_preprocess,
+            "trim_audio_to_target": trim_audio_to_target,
             "direct_rel_video": Path(prepared["direct_rel_video"]).as_posix(),
             "direct_rel_audio": Path(prepared["direct_rel_audio"]).as_posix(),
+            "direct_rel_music": Path(prepared["direct_rel_music"]).as_posix(),
             "direct_rel_csv": Path(prepared["direct_rel_csv"]).as_posix(),
             "direct_rel_task_yaml": Path(prepared["direct_rel_task_yaml"]).as_posix(),
             "raw_output_video": str(result_raw_path),
@@ -597,6 +634,8 @@ def run_one_task(
     }
     if (logs_dir / "preprocess.log").exists():
         record["artifacts"]["preprocess_log"] = rel_to_benchmark(logs_dir / "preprocess.log", benchmark_root)
+    if (artifacts_dir / "trimmed_audio.mp3").exists():
+        record["artifacts"]["trimmed_audio"] = rel_to_benchmark(artifacts_dir / "trimmed_audio.mp3", benchmark_root)
     write_json(task_dir / "run_output.json", record)
     return record
 
@@ -664,6 +703,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Write metadata and print commands without executing DIRECT-Claw.")
     parser.add_argument("--force-preprocess", action="store_true", help="Recalculate DIRECT-Claw video features even if the cache exists.")
     parser.add_argument("--skip-preprocess", action="store_true", help="Skip preprocessing and require existing feature cache.")
+    parser.add_argument("--no-trim-audio-to-target", action="store_true", help="Use the full BGM instead of trimming it to target_output_length_sec.")
     parser.add_argument("--notes", default=None)
     return parser.parse_args()
 
@@ -716,6 +756,7 @@ def main() -> int:
     run_dir = results_root / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     started_at = now_iso()
+    trim_audio_to_target = not args.no_trim_audio_to_target
     adapter_metadata = {
         "name": "run_direct_claw",
         "script": "scripts/run_direct_claw.py",
@@ -733,6 +774,7 @@ def main() -> int:
             "dry_run": bool(args.dry_run),
             "force_preprocess": bool(args.force_preprocess),
             "skip_preprocess": bool(args.skip_preprocess),
+            "trim_audio_to_target": trim_audio_to_target,
             "cfg_path": str(cfg_path),
             "ffmpeg_shim_dir": str(ffmpeg_shim_dir) if ffmpeg_shim_dir else None,
             "u2net_weight_path": str(u2net_weight_path),
@@ -757,6 +799,7 @@ def main() -> int:
                 dry_run=args.dry_run,
                 force_preprocess=args.force_preprocess,
                 skip_preprocess=args.skip_preprocess,
+                trim_audio_to_target=trim_audio_to_target,
                 cfg_path=cfg_path,
             )
         except Exception as exc:
