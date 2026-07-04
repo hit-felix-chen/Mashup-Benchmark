@@ -47,8 +47,14 @@ def load_summary(eval_dir: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def normalized_score_key(value: Any) -> str:
+    return str(value).strip().strip("'\"")
+
+
 def score_value(row: dict[str, Any], metric: str) -> float | None:
-    value = (row.get("scores") or {}).get(metric)
+    scores = row.get("scores") or {}
+    normalized_scores = {normalized_score_key(key): value for key, value in scores.items()}
+    value = normalized_scores.get(metric)
     if value is None:
         return None
     return float(value)
