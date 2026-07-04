@@ -103,7 +103,7 @@ def main() -> int:
             continue
 
         output_video = ROOT / record["output_video"]
-        result = judge.score_specified_metricsnostics(output_video, task, record)
+        result = judge.score_specified_metrics(output_video, task, record)
         output["scores"] = result["scores"]
         output["metric_details"] = result["metric_details"]
         output["rationale"] = result.get("rationale") or {}
@@ -121,7 +121,7 @@ def main() -> int:
         print(f"[{idx}/{len(run_records)}] specified-metrics evaluated {task_id} ({output['task_type']})")
 
     specified_metrics_dir.mkdir(parents=True, exist_ok=True)
-    scores_path = specified_metrics_dir / "specified_metricsnostic_scores.jsonl"
+    scores_path = specified_metrics_dir / "specified_metric_scores.jsonl"
     with scores_path.open("w", encoding="utf-8") as f:
         for row in outputs:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -131,12 +131,12 @@ def main() -> int:
         "specified_metrics_id": specified_metrics_id,
         "run_id": run_id,
         "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
-        "specified_metricsnostic_scores": str(scores_path.relative_to(ROOT)),
+        "specified_metric_scores": str(scores_path.relative_to(ROOT)),
         "created_at": datetime.now(UTC).astimezone().isoformat(),
     })
-    write_json(specified_metrics_dir / "specified_metricsnostic_summary.json", summary)
+    write_json(specified_metrics_dir / "specified_metric_summary.json", summary)
     print(f"Wrote {scores_path}")
-    print(f"Wrote {specified_metrics_dir / 'specified_metricsnostic_summary.json'}")
+    print(f"Wrote {specified_metrics_dir / 'specified_metric_summary.json'}")
     return 0
 
 

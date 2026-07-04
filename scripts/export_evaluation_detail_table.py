@@ -70,18 +70,10 @@ def resolve_result_dir(results_dir: Path, result_id: str, *, label: str) -> Path
 
 
 def resolve_specified_scores_path(result_dir: Path) -> Path:
-    candidates = [
-        result_dir / "specified_metric_scores.jsonl",
-        result_dir / "specified_metrics_scores.jsonl",
-        result_dir / "specified_metricsnostic_scores.jsonl",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(
-        "Specified metrics score file not found. Tried: "
-        + ", ".join(str(path.name) for path in candidates)
-    )
+    path = result_dir / "specified_metric_scores.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"Specified metrics score file not found: {path}")
+    return path
 
 
 def build_rows(
