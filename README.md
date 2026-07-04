@@ -451,7 +451,7 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 | 脚本 | 用途 | 示例 |
 | --- | --- | --- |
 | `scripts/export_evaluation_table.py` | 将主评分结果导出为 Excel，按任务类型汇总 `IF/BCS/AEC/VQ/TC/NC/Quality`。 | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
-| `scripts/export_specified_metrics_table.py` | 将专用指标导出为三列表格：`类型 | 指标 | <模型名>`。 | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
+| `scripts/export_specified_metrics_table.py` | 将专用指标结果导出为 Excel，按类型和指标汇总。 | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
 | `scripts/export_evaluation_detail_table.py` | 将主评分和专用指标合并导出为 task 级明细表；非对应 prompt 类型的专用指标留空。 | `uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>` |
 
 ## 许可证

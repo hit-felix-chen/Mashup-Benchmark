@@ -412,7 +412,7 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 | Script | Purpose | Example |
 | --- | --- | --- |
 | `scripts/export_evaluation_table.py` | Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`. | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
-| `scripts/export_specified_metrics_table.py` | Export specified metrics as a three-column table: `Type | Metric | <Model Name>`. | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
+| `scripts/export_specified_metrics_table.py` | Export specified metrics to Excel, grouped by prompt type and metric. | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
 | `scripts/export_evaluation_detail_table.py` | Export task-level details by merging main scores and specified metrics; specified metrics outside the task's prompt type are left blank. | `uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>` |
 
 ## License
