@@ -53,6 +53,54 @@ The canonical task file is `data/tasks/mashup_benchmark.jsonl`. Each line is one
 
 </details>
 
+<details>
+<summary>Tasks</summary>
+
+| ID | Type | Video | Audio | Prompt |
+| --- | --- | --- | --- | --- |
+| `task_001` | event | `video_001` | `audio_001` | 剪出墨西哥对南非这场比赛的关键事件合集，重点包括赛前仪式、快速攻防、射门机会、进球和比分转折。 |
+| `task_002` | character | `video_001` | `audio_002` | 围绕南非队球员和主场球迷，剪一个既有人物表情又有现场氛围的主队高光短片。 |
+| `task_003` | emotion | `video_001` | `audio_003` | 剪一个有开幕战仪式感的高燃足球短片，突出欢呼、冲刺、对抗和临门一脚的紧张释放。 |
+| `task_004` | narrative | `video_001` | `audio_001` | 剪出这场比赛从赛前期待、南非率先点燃主场，到墨西哥追赶回应的完整比赛故事。 |
+| `task_005` | event | `video_002` | `audio_001` | 剪出西班牙对佛得角比赛中的门前险情、关键扑救、封堵和反击机会，突出爆冷比赛的关键节点。 |
+| `task_006` | character | `video_002` | `audio_002` | 做佛得角门将的个人高光合集，突出反应速度、扑救动作、指挥防线和顶住压力后的情绪。 |
+| `task_007` | emotion | `video_002` | `audio_004` | 剪一个弱队爆冷的紧张爽感短片，前半段强调压迫和险情，后半段强调坚持后的情绪释放。 |
+| `task_008` | narrative | `video_002` | `audio_003` | 剪出佛得角如何在西班牙持续进攻下稳住防线，并一步步把比赛拖向爆冷结果的叙事线。 |
+| `task_009` | event | `video_003` | `audio_001` | 德国7:1大胜库拉索，剪出所有进球、关键助攻和连续压制的精彩合集。 |
+| `task_010` | character | `video_003` | `audio_002` | 围绕德国队进攻群像，剪出传跑配合、门前终结、庆祝互动和球员自信状态。 |
+| `task_011` | emotion | `video_003` | `audio_003` | 剪一个火力全开、比分不断扩大、节拍密集的进球盛宴短片。 |
+| `task_012` | narrative | `video_003` | `audio_001` | 剪出德国队从试探进攻到彻底打开局面、优势不断滚大的比赛走势。 |
+| `task_013` | event | `video_004` | `audio_005` | 从地球脉动第一集剪出跨越地球不同区域的自然事件合集，突出季节变化、迁徙、捕猎和生存压力。 |
+| `task_014` | character | `video_004` | `audio_006` | 选择片中最有代表性的动物个体或族群，剪一个展示它们觅食、迁徙、求生和亲缘关系的短片。 |
+| `task_015` | emotion | `video_004` | `audio_005` | 剪一个宏大、敬畏、充满地球尺度感的自然奇观短片，强调从两极到赤道的生命张力。 |
+| `task_016` | narrative | `video_004` | `audio_006` | 剪出一条从环境铺垫、生命挑战、行动展开到结果揭晓的自然故事线。 |
+| `task_017` | event | `video_005` | `audio_006` | 从地球脉动第二集剪出高山环境中的关键自然事件，突出雪线、峭壁、风暴、捕猎和动物攀爬。 |
+| `task_018` | character | `video_005` | `audio_005` | 围绕高山动物作为主角，剪一个展示孤独、敏捷、耐力和生存策略的短片。 |
+| `task_019` | emotion | `video_005` | `audio_004` | 剪一个冷峻、壮阔、危险又诗意的高山自然短片，突出海拔带来的压迫感。 |
+| `task_020` | narrative | `video_005` | `audio_006` | 剪出从山脚到雪峰、从宁静风景到生存冲突的垂直空间叙事。 |
+| `task_021` | event | `video_006` | `audio_007` | 从地球脉动第三集剪出淡水系统中的关键事件，突出河流、瀑布、湖泊、洪水和动物围绕水源的行动。 |
+| `task_022` | character | `video_006` | `audio_006` | 选择一种依赖淡水生态的动物作为主角，剪出它寻找水源、捕食、躲避危险或繁衍的过程。 |
+| `task_023` | emotion | `video_006` | `audio_005` | 剪一个流动、清澈、生命感强的自然短片，让画面节奏随着水流和音乐起伏。 |
+| `task_024` | narrative | `video_006` | `audio_007` | 剪出水从源头、河道、瀑布到湖泊湿地的旅程，并串联不同生命如何依水而生。 |
+| `task_025` | event | `video_007` | `audio_004` | 从教父1中剪出黑帮权力交接的关键事件，包括家族会议、暗杀危机、复仇安排和权力确认。 |
+| `task_026` | character | `video_007` | `audio_008` | 围绕迈克尔·柯里昂，剪一个从局外人到家族继承者的角色转变短片。 |
+| `task_027` | emotion | `video_007` | `audio_004` | 剪一个阴郁、克制、压迫感强的黑帮电影短片，突出沉默、眼神、谈判和暴力爆发前的张力。 |
+| `task_028` | narrative | `video_007` | `audio_008` | 剪出迈克尔如何被家族危机一步步推入权力中心，并完成身份转变的叙事线。 |
+| `task_029` | event | `video_008` | `audio_009` | 从千与千寻中剪出进入异世界、签约浴屋、无脸男失控、拯救白龙和最终离开的关键事件。 |
+| `task_030` | character | `video_008` | `audio_010` | 围绕千寻，剪一个从害怕迷失到勇敢承担、主动拯救他人的成长短片。 |
+| `task_031` | emotion | `video_008` | `audio_006` | 剪一个奇幻、神秘、温暖又略带不安的动画短片，突出异世界的规则感和童话感。 |
+| `task_032` | narrative | `video_008` | `audio_008` | 剪出千寻从误入异界、适应浴屋、面对诱惑和危险，到找回名字与自我的完整旅程。 |
+| `task_033` | event | `video_009` | `audio_011` | 从爱乐之城中剪出相遇、歌舞、试镜、演出和梦想选择的关键事件合集。 |
+| `task_034` | character | `video_009` | `audio_010` | 围绕米娅，剪一个追梦、受挫、坚持试镜并最终绽放的人物短片。 |
+| `task_035` | emotion | `video_009` | `audio_011` | 剪一个浪漫、爵士、梦幻又带遗憾感的音乐电影短片，强调色彩、舞蹈和城市夜景。 |
+| `task_036` | narrative | `video_009` | `audio_008` | 剪出米娅和塞巴斯蒂安从相遇、相爱、互相鼓励到为了梦想错过彼此的情感线。 |
+| `task_037` | event | `video_010` | `audio_009` | 从星际穿越中剪出地球危机、离家升空、穿越虫洞、极端星球任务、对接和父女重逢线索的关键事件。 |
+| `task_038` | character | `video_010` | `audio_008` | 围绕库珀，剪一个父亲、宇航员和拯救者三重身份交织的人物短片。 |
+| `task_039` | emotion | `video_010` | `audio_009` | 剪一个宇宙尺度宏大、孤独、紧张又充满亲情牵引的科幻短片。 |
+| `task_040` | narrative | `video_010` | `audio_008` | 剪出库珀离开女儿、穿越星际、经历时间代价，并通过爱和引力完成回响的叙事线。 |
+
+</details>
+
 ## Directory Layout
 
 ```text
@@ -115,6 +163,8 @@ Media decoding and automatic metrics rely on the system commands `ffmpeg` and `f
 
 ## Evaluation Dimensions
 
+### General Metrics
+
 The full quality score uses 7 metrics:
 
 ```text
@@ -140,6 +190,8 @@ Metrics:
 - NC: Narrative Coherence.
 - OQ: Overall Quality, optional human rating on a 1-5 Likert scale.
 
+
+### Specified Metrics
 
 Specified Metrics are independent from the main score and are not included in `Quality`. They are used only for prompt-type-specific failure analysis and fine-grained diagnostics:
 
@@ -361,6 +413,7 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 | --- | --- | --- |
 | `scripts/export_evaluation_table.py` | Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`. | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
 | `scripts/export_specified_metrics_table.py` | Export specified metrics as a three-column table: `Type | Metric | <Model Name>`. | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
+| `scripts/export_evaluation_detail_table.py` | Export task-level details by merging main scores and specified metrics; specified metrics outside the task's prompt type are left blank. | `uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>` |
 
 ## License
 
