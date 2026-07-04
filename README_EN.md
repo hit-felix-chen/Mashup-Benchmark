@@ -16,7 +16,8 @@ Mashup-Benchmark is a long-video automatic editing benchmark for evaluating shor
 
 The canonical task file is `data/tasks/mashup_benchmark.jsonl`. Each line is one video-prompt-audio task. Task ids follow `task_<index>`, from `task_001` to `task_040`.
 
-### Videos
+<details>
+<summary>Videos</summary>
 
 | ID | Category | Title | Duration | Resolution |
 |---|---|---|---:|---|
@@ -31,7 +32,10 @@ The canonical task file is `data/tasks/mashup_benchmark.jsonl`. Each line is one
 | `video_009` | film | La La Land (2016)<br>爱乐之城 | 02:07:48 | 1920x754 |
 | `video_010` | film | Interstellar (2014)<br>星际穿越 | 02:49:04 | 1920x1080 |
 
-### Audios
+</details>
+
+<details>
+<summary>Audios</summary>
 
 | ID | Title | Artist | Duration | Mood Tags |
 |---|---|---|---:|---|
@@ -46,6 +50,8 @@ The canonical task file is `data/tasks/mashup_benchmark.jsonl`. Each line is one
 | `audio_009` | Epical Drums 01 | Grigoriy Nuzhny | 01:46 | cinematic, drums, epic, action |
 | `audio_010` | Romantic Getaway | Ahjay Stelino | 01:44 | romantic, warm, emotional, classical |
 | `audio_011` | Romantic Vacation | Ahjay Stelino | 01:52 | jazz, romantic, lounge, stylish |
+
+</details>
 
 ## Directory Layout
 
@@ -134,13 +140,36 @@ Metrics:
 - NC: Narrative Coherence.
 - OQ: Overall Quality, optional human rating on a 1-5 Likert scale.
 
+
+Specified Metrics are independent from the main score and are not included in `Quality`. They are used only for prompt-type-specific failure analysis and fine-grained diagnostics:
+
+- Event prompts: `EC — Event Coverage — 事件覆盖率`, `KMS — Key Moment Salience — 片段显著性`.
+- Character prompts: `PPR — Protagonist Presence Rate — 主体出镜率`, `PPM — Protagonist Prominence — 主体显著性`.
+- Emotion prompts: `ES — Emotional Specificity — 情绪特异性`, `FBAE — Facial / Body Affect Evidence — 面部/肢体情绪证据`.
+- Narrative prompts: `NSC — Narrative Structure Completeness — 叙事完整性`, `TLO — Temporal / Logical Order — 时间合理性`.
+
+Run specified metrics separately:
+
+```bash
+uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
+```
+
+Specified metric results can be exported as a three-column table: `Type | Metric | <Model Name>`.
+
+```bash
+uv run python scripts/export_specified_metrics_table.py \
+  --model-name <model_name> \
+  --specified-metrics-id <specified_metrics_id>
+```
+
 Efficiency is reported separately as API cost and end-to-end latency. See `eval/README.md` for the runnable evaluator.
 
 ## Baseline Evaluation
 
 This benchmark is designed to compare the following three long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
 
-### Common Baseline Adapter Configuration
+<details>
+<summary>Common Baseline Adapter Configuration</summary>
 
 Each baseline adapter should follow the same shared argument conventions wherever possible. This keeps batch experiments reproducible and lets all methods plug into the same validators and evaluator. Each method may keep its own project root, Python environment, and raw intermediate outputs, but the adapter should always export benchmark-standardized artifacts under `runs/<run_id>/`.
 
@@ -159,7 +188,10 @@ Each baseline adapter should follow the same shared argument conventions whereve
 
 Method-specific options are documented in each baseline section, such as CutClaw's hook dialogue, ending video, crop ratio, and source-video audio volume.
 
-### CutClaw
+</details>
+
+<details>
+<summary>CutClaw</summary>
 
 CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 
@@ -205,7 +237,10 @@ python3 scripts/validate_run.py runs/cutclaw_benchmark
 python3 -m eval.run_evaluation --run runs/cutclaw_benchmark --config eval/config.yaml
 ```
 
-### DIRECT-Claw
+</details>
+
+<details>
+<summary>DIRECT-Claw</summary>
 
 DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-Guided Editing
 
@@ -214,7 +249,10 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 - Paper: [https://arxiv.org/abs/2604.04875](https://arxiv.org/abs/2604.04875)
 - Status: benchmark adapter pending.
 
-### VideoAgent
+</details>
+
+<details>
+<summary>VideoAgent</summary>
 
 VideoAgent: All-in-One Framework for Video Understanding and Editing
 
@@ -274,30 +312,55 @@ Reproduction changes and rationale:
 
 The adapter only changes the engineering entrypoint and environment compatibility. It does not modify VideoAgent's core retrieval, rhythm analysis, storyboard generation, or editing algorithms. The goal is to make VideoAgent reproducible as a baseline, not to strengthen or weaken its modeling capability.
 
-## Validation And Evaluation
+</details>
 
-Validate the benchmark data structure:
+## Scripts
 
-```bash
-uv run python scripts/validate_benchmark.py
-```
+Runnable entrypoints are grouped into data/run validation, baseline adapters, evaluation, and export utilities. Run them from the benchmark root with `uv run` by default; baseline worker interpreters can be overridden through each adapter's arguments.
 
-Validate a submitted run:
+### Validation Scripts
 
-```bash
-uv run python scripts/validate_run.py runs/<run_id>
-```
+| Script | Purpose | Example |
+| --- | --- | --- |
+| `scripts/validate_benchmark.py` | Validate benchmark metadata, task JSONL files, manifests, and schema consistency. | `uv run python scripts/validate_benchmark.py` |
+| `scripts/validate_run.py` | Validate one submitted `runs/<run_id>` directory against the required structure and schemas. Failed tasks may omit `output.mp4`, but must record a non-null `error`. | `uv run python scripts/validate_run.py runs/<run_id>` |
 
-If any task has a non-null `error`, the validator lists it under `TASKS WITH ERROR` with its `task_id`, status, and message. A `failed` task does not need `output.mp4`, but it must include a non-null `error` field in `run_output.json`.
+### Baseline Adapter Scripts
 
-Evaluate a submitted run:
+| Script | Purpose | Example |
+| --- | --- | --- |
+| `scripts/run_cutclaw.py` | Run CutClaw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
+| `scripts/run_direct_claw.py` | Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
+| `scripts/run_videoagent.py` | Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
+
+### Evaluation Scripts
+
+| Entrypoint | Purpose | Outputs |
+| --- | --- | --- |
+| `python -m eval.run_evaluation` | Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, optional `OQ`, and `Quality`. | `eval_results/<eval_id>/evaluation_scores.jsonl`, `summary.json` |
+| `python -m eval.run_specified_metrics` | Compute specified metrics separately from the main `Quality` score for prompt-type-specific failure analysis. | `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl`, `specified_metric_summary.json` |
+
+Main evaluation example:
 
 ```bash
 cp eval/config.example.yaml eval/config.yaml
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+Specified metrics example:
+
+```bash
+uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
+```
+
 `eval/config.yaml` configures the VLM model name, API key, base URL, timeout, and metric weights. This file contains local credentials and is ignored by Git; do not commit it.
+
+### Export Scripts
+
+| Script | Purpose | Example |
+| --- | --- | --- |
+| `scripts/export_evaluation_table.py` | Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`. | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
+| `scripts/export_specified_metrics_table.py` | Export specified metrics as a three-column table: `Type | Metric | <Model Name>`. | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
 
 ## License
 

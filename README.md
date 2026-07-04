@@ -16,7 +16,8 @@ Mashup-Benchmark 是一个面向长视频自动剪辑的 benchmark，用于评�
 
 标准任务文件是 `data/tasks/mashup_benchmark.jsonl`，其中每一行对应一个视频-提示词-音频任务。媒体文件按 `data/videos/<video_id>/...` 和 `data/audios/<audio_id>/...` 组织。任务 id 命名为 `task_<index>`，范围为 `task_001` 到 `task_040`。
 
-### 视频
+<details>
+<summary>视频</summary>
 
 | 编号          | 类型     | 名称                                                                             |     时长 | 分辨率    |
 | ------------- | -------- | -------------------------------------------------------------------------------- | -------: | --------- |
@@ -31,7 +32,10 @@ Mashup-Benchmark 是一个面向长视频自动剪辑的 benchmark，用于评�
 | `video_009` | 电影     | 爱乐之城La La Land (2016)                                                        | 02:07:48 | 1920x754  |
 | `video_010` | 电影     | 星际穿越Interstellar (2014)                                                      | 02:49:04 | 1920x1080 |
 
-### 音频
+</details>
+
+<details>
+<summary>音频</summary>
 
 | 编号          | 曲名                 | 作者                     |  时长 | 风格标签                                      |
 | ------------- | -------------------- | ------------------------ | ----: | --------------------------------------------- |
@@ -46,6 +50,8 @@ Mashup-Benchmark 是一个面向长视频自动剪辑的 benchmark，用于评�
 | `audio_009` | Epical Drums 01      | Grigoriy Nuzhny          | 01:46 | cinematic, drums, epic, action                |
 | `audio_010` | Romantic Getaway     | Ahjay Stelino            | 01:44 | romantic, warm, emotional, classical          |
 | `audio_011` | Romantic Vacation    | Ahjay Stelino            | 01:52 | jazz, romantic, lounge, stylish               |
+
+</details>
 
 ## 目录结构
 
@@ -134,13 +140,36 @@ VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Li
 - NC：Narrative Coherence，叙事连贯性。
 - OQ：Overall Quality，人类整体质量评分，可选，1-5 Likert 量表。
 
+
+专用指标（Specified Metrics）与主评分独立，不参与 `Quality` 计算，仅用于按 prompt 类型做失败归因和细粒度分析：
+
+- 事件型：`EC — Event Coverage — 事件覆盖率`，`KMS — Key Moment Salience — 片段显著性`。
+- 人物型：`PPR — Protagonist Presence Rate — 主体出镜率`，`PPM — Protagonist Prominence — 主体显著性`。
+- 情绪型：`ES — Emotional Specificity — 情绪特异性`，`FBAE — Facial / Body Affect Evidence — 面部/肢体情绪证据`。
+- 叙事型：`NSC — Narrative Structure Completeness — 叙事完整性`，`TLO — Temporal / Logical Order — 时间合理性`。
+
+专用指标单独运行：
+
+```bash
+uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
+```
+
+专用指标结果可导出为三列表格：`类型 | 指标 | <模型名>`。
+
+```bash
+uv run python scripts/export_specified_metrics_table.py \
+  --model-name <model_name> \
+  --specified-metrics-id <specified_metrics_id>
+```
+
 效率单独报告，包括 API 成本和端到端耗时。可运行评测器的说明见 `eval/README.md`。
 
 ## Baseline 评测
 
 本 benchmark 计划对比以下三个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
 
-### Baseline Adapter 通用配置
+<details>
+<summary>Baseline Adapter 通用配置</summary>
 
 每个 baseline adapter 都应尽量遵循同一组通用参数，方便批量实验、复现和接入统一评测器。不同方法的项目根目录、Python 环境和原始输出可以各自独立，但最终都需要写出 benchmark 标准化的 `runs/<run_id>/` 结构。
 
@@ -159,7 +188,10 @@ VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Li
 
 方法独有的开关放在各 baseline 小节中说明，例如 CutClaw 的 hook dialogue、ending video、裁剪比例和原视频音量。
 
-### CutClaw
+</details>
+
+<details>
+<summary>CutClaw</summary>
 
 CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 
@@ -205,7 +237,10 @@ python3 scripts/validate_run.py runs/cutclaw_benchmark
 python3 -m eval.run_evaluation --run runs/cutclaw_benchmark --config eval/config.yaml
 ```
 
-### DIRECT-Claw
+</details>
+
+<details>
+<summary>DIRECT-Claw</summary>
 
 DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-Guided Editing
 
@@ -253,7 +288,10 @@ python -m src.main_agent --yaml_path ... --result_path ... --log_path ...
 
 视频特征缓存保存在 DIRECT-Claw 的 `output/benchmark_adapter/` 和 `output/benchmark_adapter/videos/` 相关路径中；默认复用已有特征缓存，需要强制重算时使用 `--force-preprocess`。如果当前 shell 中没有 `ffmpeg`，adapter 会优先使用 `imageio_ffmpeg` 自带二进制创建私有 shim，不修改系统环境。
 
-### VideoAgent
+</details>
+
+<details>
+<summary>VideoAgent</summary>
 
 VideoAgent: All-in-One Framework for Video Understanding and Editing
 
@@ -313,30 +351,55 @@ VideoAgent adapter 复现改动与理由：
 
 该 adapter 只改变工程入口和环境兼容性，不修改 VideoAgent 的核心检索、节奏分析、storyboard 生成或编辑算法。这样做的目标是让 VideoAgent 作为 baseline 可重复运行，而不是提高或削弱其模型能力。
 
-## 校验与评测
+</details>
 
-校验 benchmark 数据结构：
+## 脚本说明
 
-```bash
-uv run python scripts/validate_benchmark.py
-```
+本仓库的可运行入口分为三类：数据/run 校验、baseline adapter、评测与导出。推荐全部在 benchmark 根目录通过 `uv run` 执行；外部 baseline 的 worker 解释器可通过对应参数显式指定。
 
-校验一个待测 run：
+### 校验脚本
 
-```bash
-uv run python scripts/validate_run.py runs/<run_id>
-```
+| 脚本 | 用途 | 示例 |
+| --- | --- | --- |
+| `scripts/validate_benchmark.py` | 校验 benchmark 元数据、任务 JSONL、manifest 和 schema 是否一致。 | `uv run python scripts/validate_benchmark.py` |
+| `scripts/validate_run.py` | 校验某个 `runs/<run_id>` 是否符合提交结构和 schema。失败 task 可以没有 `output.mp4`，但必须记录非空 `error`。 | `uv run python scripts/validate_run.py runs/<run_id>` |
 
-如果某些 task 记录了非空 `error`，校验脚本会在 `TASKS WITH ERROR` 中列出对应 `task_id`、状态和错误信息。`failed` task 不要求存在 `output.mp4`，但必须在 `run_output.json` 中包含非空 `error` 字段。
+### Baseline Adapter 脚本
 
-评测一个待测 run：
+| 脚本 | 用途 | 示例 |
+| --- | --- | --- |
+| `scripts/run_cutclaw.py` | 调用 CutClaw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
+| `scripts/run_direct_claw.py` | 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
+| `scripts/run_videoagent.py` | 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
+
+### 评测脚本
+
+| 入口 | 用途 | 输出 |
+| --- | --- | --- |
+| `python -m eval.run_evaluation` | 计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及可选 `OQ` 后的 `Quality`。 | `eval_results/<eval_id>/evaluation_scores.jsonl`、`summary.json` |
+| `python -m eval.run_specified_metrics` | 单独计算专用指标，不参与主 `Quality`，用于按 prompt 类型做失败归因。 | `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl`、`specified_metric_summary.json` |
+
+主评分示例：
 
 ```bash
 cp eval/config.example.yaml eval/config.yaml
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+专用指标示例：
+
+```bash
+uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
+```
+
 `eval/config.yaml` 用于配置 VLM 模型名、API key、base URL、超时时间和指标权重。该文件包含本地密钥配置，已被 Git 忽略；请不要提交。
+
+### 导出脚本
+
+| 脚本 | 用途 | 示例 |
+| --- | --- | --- |
+| `scripts/export_evaluation_table.py` | 将主评分结果导出为 Excel，按任务类型汇总 `IF/BCS/AEC/VQ/TC/NC/Quality`。 | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
+| `scripts/export_specified_metrics_table.py` | 将专用指标导出为三列表格：`类型 | 指标 | <模型名>`。 | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
 
 ## 许可证
 
