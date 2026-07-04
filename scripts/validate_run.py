@@ -1,8 +1,31 @@
 #!/usr/bin/env python3
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def normalize_thread_count(value):
+    if value is None:
+        return "1"
+    value = value.strip()
+    if not value:
+        return "1"
+    try:
+        parsed = int(value)
+    except ValueError:
+        return "1"
+    return str(parsed) if parsed > 0 else "1"
+
+
+for _thread_env_name in (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_env_name] = normalize_thread_count(os.environ.get(_thread_env_name))
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_FILE = ROOT / "data" / "tasks" / "mashup_benchmark.jsonl"

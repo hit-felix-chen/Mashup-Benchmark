@@ -23,6 +23,28 @@ DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 
 
+def normalize_thread_count(value):
+    if value is None:
+        return "1"
+    value = value.strip()
+    if not value:
+        return "1"
+    try:
+        parsed = int(value)
+    except ValueError:
+        return "1"
+    return str(parsed) if parsed > 0 else "1"
+
+
+for _thread_env_name in (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_env_name] = normalize_thread_count(os.environ.get(_thread_env_name))
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 
@@ -125,7 +147,10 @@ def stream_command(cmd: list[str], log_path: Path, *, cwd: Path, dry_run: bool =
             return 0
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        env["OMP_NUM_THREADS"] = "1"
+        env["OMP_NUM_THREADS"] = normalize_thread_count(env.get("OMP_NUM_THREADS"))
+        env["NUMEXPR_NUM_THREADS"] = normalize_thread_count(env.get("NUMEXPR_NUM_THREADS"))
+        env["OPENBLAS_NUM_THREADS"] = normalize_thread_count(env.get("OPENBLAS_NUM_THREADS"))
+        env["MKL_NUM_THREADS"] = normalize_thread_count(env.get("MKL_NUM_THREADS"))
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
