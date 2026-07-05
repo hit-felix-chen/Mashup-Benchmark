@@ -31,6 +31,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -138,16 +139,46 @@ def get_text_llm_config(config, overrides: dict) -> tuple[str, str, str, str]:
     return provider, model, api_key, base_url
 
 
+def prepare_asr_audio(payload: dict) -> str:
+    asr_audio_path = Path(payload.get("asr_audio_path") or "").resolve()
+    if asr_audio_path.exists() and asr_audio_path.stat().st_size > 0:
+        return str(asr_audio_path)
+    asr_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = asr_audio_path.with_name(f"{asr_audio_path.stem}.tmp{asr_audio_path.suffix}")
+    if tmp_path.exists():
+        tmp_path.unlink()
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        payload["video_path"],
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-b:a",
+        "64k",
+        str(tmp_path),
+    ]
+    subprocess.run(cmd, check=True)
+    tmp_path.replace(asr_audio_path)
+    return str(asr_audio_path)
+
+
 def transcribe_video(payload: dict, config, srt_path: Path) -> str:
     from app.services import fun_asr_subtitle
 
     backend = str(payload.get("asr_backend") or config.fun_asr.get("backend", "bailian")).strip().lower()
-    video_path = payload["video_path"]
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     if backend == "bailian":
+        asr_input = prepare_asr_audio(payload)
         api_key = str(payload.get("asr_api_key") or config.fun_asr.get("api_key", "")).strip()
         return fun_asr_subtitle.create_with_fun_asr(
-            local_file=video_path,
+            local_file=asr_input,
             subtitle_file=str(srt_path),
             api_key=api_key,
             timeout=float(payload.get("asr_timeout_sec") or 1800.0),
@@ -155,7 +186,7 @@ def transcribe_video(payload: dict, config, srt_path: Path) -> str:
     if backend == "local":
         api_url = str(payload.get("asr_api_url") or config.fun_asr.get("api_url", "")).strip()
         return fun_asr_subtitle.create_with_local_fun_asr(
-            local_file=video_path,
+            local_file=payload["video_path"],
             subtitle_file=str(srt_path),
             api_url=api_url,
             hotword=str(config.fun_asr.get("hotword", "")),
@@ -164,7 +195,7 @@ def transcribe_video(payload: dict, config, srt_path: Path) -> str:
     if backend == "firered":
         api_url = str(payload.get("asr_firered_api_url") or config.fun_asr.get("firered_api_url", "")).strip()
         return fun_asr_subtitle.create_with_local_firered_asr(
-            local_file=video_path,
+            local_file=payload["video_path"],
             subtitle_file=str(srt_path),
             api_url=api_url,
         )
@@ -554,12 +585,15 @@ def run_one_task(
 
         worker_path = artifacts_dir / "narratoai_worker.py"
         payload_path = artifacts_dir / "narratoai_payload.json"
-        shared_srt_path = run_dir / "shared_cache" / "asr" / task["video"]["id"] / asr_backend / "source.srt"
+        shared_asr_dir = run_dir / "shared_cache" / "asr" / task["video"]["id"] / asr_backend
+        shared_srt_path = shared_asr_dir / "source.srt"
+        shared_asr_audio_path = shared_asr_dir / "source_audio.m4a"
         worker_path.write_text(WORKER_SOURCE, encoding="utf-8")
         payload = {
             "narratoai_root": str(narratoai_root),
             "artifacts_dir": str(artifacts_dir),
             "source_srt_path": str(shared_srt_path),
+            "asr_audio_path": str(shared_asr_audio_path),
             "video_path": str(video_path),
             "audio_path": str(audio_path),
             "video_id": task["video"]["id"],
