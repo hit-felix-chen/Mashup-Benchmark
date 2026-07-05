@@ -101,7 +101,10 @@ The canonical task file is `data/tasks/mashup_benchmark.jsonl`. Each line is one
 
 </details>
 
-## Directory Layout
+## System Format Specification
+
+<details>
+<summary>Directory Layout</summary>
 
 ```text
 Mashup-Benchmark/
@@ -120,7 +123,10 @@ Mashup-Benchmark/
   docs/                          # Benchmark spec, metric protocol, and data card
 ```
 
-## Expected System Output
+</details>
+
+<details>
+<summary>Expected System Output</summary>
 
 One `run` represents the complete output of one baseline or ablation setting on one or more benchmark tasks. Each task should produce one complete edited short video and use the following structure:
 
@@ -142,6 +148,8 @@ runs/<run_id>/
 ```
 
 `<run_id>` identifies the method and experiment setting, for example `cutclaw_benchmark` or `cutmaster_embedding_v4_full`; `<task_id>` uses the canonical `task_001` to `task_040` ids. The minimum required files for evaluation are `run_manifest.json`, `run_outputs.jsonl`, and each successful task's `output.mp4` and `run_output.json`. See `docs/run_submission_format.md` for the full submission format.
+
+</details>
 
 ## Environment Setup
 
@@ -258,7 +266,6 @@ CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 - Fork: [https://github.com/hit-cxf/CutClaw](https://github.com/hit-cxf/CutClaw)
 - Paper: [https://arxiv.org/abs/2603.29664](https://arxiv.org/abs/2603.29664)
 - Status: benchmark adapter available.
-- Reproduction environment: local Mac mini M4.
 
 Use the benchmark-side CutClaw adapter to run selected tasks and write evaluation-ready artifacts to `runs/<run_id>/`:
 
@@ -330,7 +337,6 @@ NarratoAI: all-in-one AI-powered film commentary and automated video editing too
 
 - Project: [https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
 - Status: benchmark adapter available.
-- Reproduction environment: local Mac mini M4.
 
 NarratoAI's native entrypoint is a Streamlit WebUI. For Mashup-Benchmark, the adapter fixes a reproducible batch pipeline:
 
@@ -415,7 +421,6 @@ Server environment used for reproduction:
 Run one task:
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 uv run python3 scripts/run_videoagent.py \
   --task-id task_001 \
   --run-id videoagent_benchmark_smoke \
@@ -425,7 +430,6 @@ uv run python3 scripts/run_videoagent.py \
 Run all tasks:
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 uv run python3 scripts/run_videoagent.py \
   --all \
   --run-id videoagent_benchmark \
@@ -455,7 +459,6 @@ OpenMontage: agent-driven video production harness.
 
 - Status: benchmark adapter available.
 - Adaptation: Claude Code acts as the coding agent and follows OpenMontage's `AGENT_GUIDE.md`, pipeline manifests, and tool protocol. The local Claude Code setup can route to Qwen3.7-Plus through an Anthropic-compatible endpoint.
-- Reproduction environment: local Mac mini M4; the agent stack is Claude Code + Qwen3.7-Plus.
 
 OpenMontage is not a traditional one-command pipeline; it is a harness where the agent is the orchestrator. For reproducible benchmark runs, the adapter fixes the following constrained path:
 
@@ -529,40 +532,81 @@ This adapter does not modify OpenMontage's core code. It creates the benchmark p
 
 ## Scripts
 
-Runnable entrypoints are grouped into data/run validation, baseline adapters, evaluation, and export utilities. Run them from the benchmark root with `uv run` by default; baseline worker interpreters can be overridden through each adapter's arguments.
+Runnable entrypoints are grouped into validation, baseline adapters, evaluation, and export utilities. Run them from the benchmark root with `uv run` by default; baseline worker interpreters can be overridden through each adapter's arguments.
 
 ### Validation Scripts
 
-| Script | Purpose | Example |
-| --- | --- | --- |
-| `scripts/validate_benchmark.py` | Validate benchmark metadata, task JSONL files, manifests, and schema consistency. | `uv run python scripts/validate_benchmark.py` |
-| `scripts/validate_run.py` | Validate one submitted `runs/<run_id>` directory against the required structure and schemas. Failed tasks may omit `output.mp4`, but must record a non-null `error`. | `uv run python scripts/validate_run.py runs/<run_id>` |
+#### `scripts/validate_benchmark.py`
+
+Validate benchmark metadata, task JSONL files, manifests, and schema consistency.
+
+```bash
+uv run python scripts/validate_benchmark.py
+```
+
+#### `scripts/validate_run.py`
+
+Validate one submitted `runs/<run_id>` directory against the required structure and schemas. Failed tasks may omit `output.mp4`, but must record a non-null `error`.
+
+```bash
+uv run python scripts/validate_run.py runs/<run_id>
+```
 
 ### Baseline Adapter Scripts
 
-| Script | Purpose | Example |
-| --- | --- | --- |
-| `scripts/run_cutclaw.py` | Run CutClaw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
-| `scripts/run_direct_claw.py` | Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
-| `scripts/run_narratoai.py` | Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs. | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
-| `scripts/run_videoagent.py` | Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
-| `scripts/run_openmontage.py` | Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs. | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project` |
+#### `scripts/run_cutclaw.py`
+
+Run CutClaw and export standardized `runs/<run_id>/` outputs.
+
+```bash
+uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark
+```
+
+#### `scripts/run_direct_claw.py`
+
+Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs.
+
+```bash
+uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark
+```
+
+#### `scripts/run_narratoai.py`
+
+Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs.
+
+```bash
+uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark
+```
+
+#### `scripts/run_videoagent.py`
+
+Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs.
+
+```bash
+uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark
+```
+
+#### `scripts/run_openmontage.py`
+
+Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs.
+
+```bash
+uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project
+```
 
 ### Evaluation Scripts
 
-| Entrypoint | Purpose | Outputs |
-| --- | --- | --- |
-| `python -m eval.run_evaluation` | Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, optional `OQ`, and `Quality`. | `eval_results/<eval_id>/evaluation_scores.jsonl`, `summary.json` |
-| `python -m eval.run_specified_metrics` | Compute specified metrics separately from the main `Quality` score for prompt-type-specific failure analysis. | `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl`, `specified_metric_summary.json` |
+#### `python -m eval.run_evaluation`
 
-Main evaluation example:
+Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, optional `OQ`, and `Quality`. Outputs are written to `eval_results/<eval_id>/evaluation_scores.jsonl` and `summary.json`.
 
 ```bash
-cp eval/config.example.yaml eval/config.yaml
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
-Specified metrics example:
+#### `python -m eval.run_specified_metrics`
+
+Compute specified metrics separately from the main `Quality` score for prompt-type-specific failure analysis. Outputs are written to `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` and `specified_metric_summary.json`.
 
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
@@ -572,11 +616,29 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 
 ### Export Scripts
 
-| Script | Purpose | Example |
-| --- | --- | --- |
-| `scripts/export_evaluation_table.py` | Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`. | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
-| `scripts/export_specified_metrics_table.py` | Export specified metrics to Excel, grouped by prompt type and metric. | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
-| `scripts/export_evaluation_detail_table.py` | Export task-level details by merging main scores and specified metrics; specified metrics outside the task's prompt type are left blank. | `uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>` |
+#### `scripts/export_evaluation_table.py`
+
+Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`.
+
+```bash
+uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>
+```
+
+#### `scripts/export_specified_metrics_table.py`
+
+Export specified metrics to Excel, grouped by prompt type and metric.
+
+```bash
+uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>
+```
+
+#### `scripts/export_evaluation_detail_table.py`
+
+Export task-level details by merging main scores and specified metrics; specified metrics outside the task's prompt type are left blank.
+
+```bash
+uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>
+```
 
 ## License
 

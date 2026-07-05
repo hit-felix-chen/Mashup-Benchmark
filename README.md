@@ -101,7 +101,10 @@ Mashup-Benchmark 是一个面向长视频自动剪辑的 benchmark，用于评�
 
 </details>
 
-## 目录结构
+## 系统格式规范
+
+<details>
+<summary>目录结构</summary>
 
 ```text
 Mashup-Benchmark/
@@ -120,7 +123,10 @@ Mashup-Benchmark/
   docs/                          # benchmark 规范、指标协议和数据说明
 ```
 
-## 系统输出格式
+</details>
+
+<details>
+<summary>系统输出格式</summary>
 
 一个 `run` 表示某个 baseline 或消融配置在一个或多个 benchmark task 上的完整输出。每个任务需要生成一个完整的短视频成片，并按下面的结构保存：
 
@@ -142,6 +148,8 @@ runs/<run_id>/
 ```
 
 其中 `<run_id>` 用于标识方法和实验设置，例如 `cutclaw_benchmark` 或 `cutmaster_embedding_v4_full`；`<task_id>` 使用 `task_001` 到 `task_040` 的规范编号。评测时最小必需文件是 `run_manifest.json`、`run_outputs.jsonl`，以及每个成功 task 下的 `output.mp4` 和 `run_output.json`。详细提交格式见 `docs/run_submission_format.md`。
+
+</details>
 
 ## 环境配置
 
@@ -258,7 +266,6 @@ CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 - Fork：[https://github.com/hit-cxf/CutClaw](https://github.com/hit-cxf/CutClaw)
 - 论文：[https://arxiv.org/abs/2603.29664](https://arxiv.org/abs/2603.29664)
 - 当前状态：已提供 benchmark adapter。
-- 复现环境：Mac mini M4，本地运行。
 
 使用 benchmark 侧的 CutClaw adapter 运行指定任务，并将可评测产物写入 `runs/<run_id>/`：
 
@@ -306,7 +313,6 @@ NarratoAI: all-in-one AI-powered film commentary and automated video editing too
 
 - 项目：[https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
 - 当前状态：已提供 benchmark adapter。
-- 复现环境：Mac mini M4，本地运行。
 
 NarratoAI 原生入口是 Streamlit WebUI。为适配 Mashup-Benchmark，当前 adapter 固定使用统一的、可批量复现的流程：
 
@@ -386,7 +392,6 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 运行单个任务：
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 /root/miniconda3/envs/direct/bin/python scripts/run_direct_claw.py \
   --task-id task_001 \
   --run-id direct_claw_benchmark_smoke \
@@ -396,7 +401,6 @@ cd /root/autodl-tmp/Mashup-Benchmark
 批量运行全部任务：
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 /root/miniconda3/envs/direct/bin/python scripts/run_direct_claw.py \
   --all \
   --run-id direct_claw_benchmark
@@ -443,7 +447,6 @@ VideoPreloader -> RhythmDetector -> RhythmContentGenerator -> VideoSearcher -> V
 运行单个任务：
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 uv run python3 scripts/run_videoagent.py \
   --task-id task_001 \
   --run-id videoagent_benchmark_smoke \
@@ -453,7 +456,6 @@ uv run python3 scripts/run_videoagent.py \
 批量运行全部任务：
 
 ```bash
-cd /root/autodl-tmp/Mashup-Benchmark
 uv run python3 scripts/run_videoagent.py \
   --all \
   --run-id videoagent_benchmark \
@@ -483,7 +485,6 @@ OpenMontage: agent-driven video production harness.
 
 - 当前状态：已提供 benchmark adapter。
 - 适配方式：Claude Code 作为 coding agent，按 OpenMontage 的 `AGENT_GUIDE.md`、pipeline manifest 和工具协议执行；本地 Claude Code 可通过 Anthropic-compatible 路由使用 Qwen3.7-Plus。
-- 复现环境：Mac mini M4，本地运行；agent 组合为 Claude Code + Qwen3.7-Plus。
 
 OpenMontage 不是传统的单命令 pipeline，而是“agent 即 orchestrator”的 harness。为保证 benchmark 可批量复现，当前 adapter 固定使用如下约束：
 
@@ -557,40 +558,81 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 
 ## 脚本说明
 
-本仓库的可运行入口分为三类：数据/run 校验、baseline adapter、评测与导出。推荐全部在 benchmark 根目录通过 `uv run` 执行；外部 baseline 的 worker 解释器可通过对应参数显式指定。
+本仓库的可运行入口分为四类：数据/run 校验、baseline adapter、评测和导出。推荐全部在 benchmark 根目录通过 `uv run` 执行；外部 baseline 的 worker 解释器可通过对应参数显式指定。
 
 ### 校验脚本
 
-| 脚本 | 用途 | 示例 |
-| --- | --- | --- |
-| `scripts/validate_benchmark.py` | 校验 benchmark 元数据、任务 JSONL、manifest 和 schema 是否一致。 | `uv run python scripts/validate_benchmark.py` |
-| `scripts/validate_run.py` | 校验某个 `runs/<run_id>` 是否符合提交结构和 schema。失败 task 可以没有 `output.mp4`，但必须记录非空 `error`。 | `uv run python scripts/validate_run.py runs/<run_id>` |
+#### `scripts/validate_benchmark.py`
+
+校验 benchmark 元数据、任务 JSONL、manifest 和 schema 是否一致。
+
+```bash
+uv run python scripts/validate_benchmark.py
+```
+
+#### `scripts/validate_run.py`
+
+校验某个 `runs/<run_id>` 是否符合提交结构和 schema。失败 task 可以没有 `output.mp4`，但必须记录非空 `error`。
+
+```bash
+uv run python scripts/validate_run.py runs/<run_id>
+```
 
 ### Baseline Adapter 脚本
 
-| 脚本 | 用途 | 示例 |
-| --- | --- | --- |
-| `scripts/run_cutclaw.py` | 调用 CutClaw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
-| `scripts/run_direct_claw.py` | 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
-| `scripts/run_narratoai.py` | 调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。 | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
-| `scripts/run_videoagent.py` | 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
-| `scripts/run_openmontage.py` | 调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。 | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project` |
+#### `scripts/run_cutclaw.py`
+
+调用 CutClaw，生成标准化 `runs/<run_id>/` 输出。
+
+```bash
+uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark
+```
+
+#### `scripts/run_direct_claw.py`
+
+调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。
+
+```bash
+uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark
+```
+
+#### `scripts/run_narratoai.py`
+
+调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。
+
+```bash
+uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark
+```
+
+#### `scripts/run_videoagent.py`
+
+调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。
+
+```bash
+uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark
+```
+
+#### `scripts/run_openmontage.py`
+
+调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。
+
+```bash
+uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project
+```
 
 ### 评测脚本
 
-| 入口 | 用途 | 输出 |
-| --- | --- | --- |
-| `python -m eval.run_evaluation` | 计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及可选 `OQ` 后的 `Quality`。 | `eval_results/<eval_id>/evaluation_scores.jsonl`、`summary.json` |
-| `python -m eval.run_specified_metrics` | 单独计算专用指标，不参与主 `Quality`，用于按 prompt 类型做失败归因。 | `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl`、`specified_metric_summary.json` |
+#### `python -m eval.run_evaluation`
 
-主评分示例：
+计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及可选 `OQ` 后的 `Quality`。输出到 `eval_results/<eval_id>/evaluation_scores.jsonl` 和 `summary.json`。
 
 ```bash
-cp eval/config.example.yaml eval/config.yaml
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
-专用指标示例：
+#### `python -m eval.run_specified_metrics`
+
+单独计算专用指标，不参与主 `Quality`，用于按 prompt 类型做失败归因。输出到 `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` 和 `specified_metric_summary.json`。
 
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
@@ -600,11 +642,29 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 
 ### 导出脚本
 
-| 脚本 | 用途 | 示例 |
-| --- | --- | --- |
-| `scripts/export_evaluation_table.py` | 将主评分结果导出为 Excel，按任务类型汇总 `IF/BCS/AEC/VQ/TC/NC/Quality`。 | `uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>` |
-| `scripts/export_specified_metrics_table.py` | 将专用指标结果导出为 Excel，按类型和指标汇总。 | `uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>` |
-| `scripts/export_evaluation_detail_table.py` | 将主评分和专用指标合并导出为 task 级明细表；非对应 prompt 类型的专用指标留空。 | `uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>` |
+#### `scripts/export_evaluation_table.py`
+
+将主评分结果导出为 Excel，按任务类型汇总 `IF/BCS/AEC/VQ/TC/NC/Quality`。
+
+```bash
+uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>
+```
+
+#### `scripts/export_specified_metrics_table.py`
+
+将专用指标结果导出为 Excel，按类型和指标汇总。
+
+```bash
+uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>
+```
+
+#### `scripts/export_evaluation_detail_table.py`
+
+将主评分和专用指标合并导出为 task 级明细表；非对应 prompt 类型的专用指标留空。
+
+```bash
+uv run python scripts/export_evaluation_detail_table.py --model-name CutClaw --eval-id <eval_id> --specified-metrics-id <specified_metrics_id>
+```
 
 ## 许可证
 
