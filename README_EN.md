@@ -116,7 +116,6 @@ Mashup-Benchmark/
   schemas/                       # JSON Schema files for task/run/evaluation records
   scripts/                       # Validation and utility scripts
   runs/                          # System outputs, run_output.json files, and run manifests
-  outputs/                       # Temporary exported artifacts that are not submitted runs
   eval/                          # Evaluation code
   eval_results/                  # Metric outputs and VLM-as-judge scores
   reports/                       # Aggregated tables, plots, and experiment notes

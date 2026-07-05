@@ -116,7 +116,6 @@ Mashup-Benchmark/
   schemas/                       # task/run/evaluation 记录的 JSON Schema
   scripts/                       # 校验脚本和工具脚本
   runs/                          # 待测系统输出、run_output.json 和 run_manifest.json
-  outputs/                       # 非正式提交 run 的临时导出结果
   eval/                          # 评测代码
   eval_results/                  # 指标结果和 VLM-as-judge 打分结果
   reports/                       # 汇总表格、图表和实验记录
