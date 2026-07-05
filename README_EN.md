@@ -218,7 +218,7 @@ Efficiency is reported separately as API cost and end-to-end latency. See `eval/
 
 ## Baseline Evaluation
 
-This benchmark is designed to compare the following three long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
+This benchmark is designed to compare the following four long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
 
 <details>
 <summary>Common Baseline Adapter Configuration</summary>
@@ -304,6 +304,67 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 </details>
 
 <details>
+<summary>NarratoAI</summary>
+
+NarratoAI: all-in-one AI-powered film commentary and automated video editing tool.
+
+- Project: [https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
+- Status: benchmark adapter available.
+
+NarratoAI's native entrypoint is a Streamlit WebUI. For Mashup-Benchmark, the adapter fixes a reproducible batch pipeline:
+
+```text
+ASR to SRT -> short-mix script generation -> force OST=1 -> render with benchmark-specified BGM
+```
+
+`OST=1` means preserving source-video audio and disabling TTS generation. The adapter passes each task's `audio.local_path` as the BGM file for NarratoAI's final render stage, rather than letting NarratoAI randomly choose music.
+
+Run one task:
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --task-id task_001 \
+  --run-id narratoai_benchmark
+```
+
+Run all tasks:
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --all \
+  --run-id narratoai_benchmark
+```
+
+NarratoAI-specific arguments:
+
+| Argument | Description |
+| --- | --- |
+| `--asr-backend` | Subtitle transcription backend: `bailian`, `local`, or `firered`. Defaults to `bailian`. |
+| `--no-reuse-asr` | Regenerate subtitles even when `artifacts/source.srt` already exists. Existing SRT files are reused by default. |
+| `--custom-clips` | Number of candidate clips requested from NarratoAI. Defaults to `target_output_length_sec / target_shot_length_sec`. |
+| `--max-clip-duration-sec` | Maximum duration of each adapted clip. Defaults to the task's `target_shot_length_sec`. |
+| `--bgm-volume` | Mixed-in volume for the benchmark-specified BGM. |
+| `--original-volume` | Source-video audio volume passed to NarratoAI. NarratoAI tends to preserve source audio for `OST=1` clips. |
+| `--subtitle-enabled` | Burn subtitles into the final video. Disabled by default for benchmark runs to avoid affecting visual evaluation. |
+
+Per-task intermediate artifacts are stored under:
+
+```text
+runs/<run_id>/task_outputs/<task_id>/artifacts/
+  source.srt
+  narrato_script_raw.json
+  narrato_script_adapted.json
+  narratoai_payload.json
+  narrato_worker_result.json
+```
+
+This adapter does not modify NarratoAI's core code. It invokes NarratoAI's ASR, short-mix script generation, and video rendering services through an external worker, then normalizes the output into the benchmark-standard `runs/<run_id>/` structure.
+
+</details>
+
+<details>
 <summary>VideoAgent</summary>
 
 VideoAgent: All-in-One Framework for Video Understanding and Editing
@@ -383,6 +444,7 @@ Runnable entrypoints are grouped into data/run validation, baseline adapters, ev
 | --- | --- | --- |
 | `scripts/run_cutclaw.py` | Run CutClaw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
 | `scripts/run_direct_claw.py` | Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
+| `scripts/run_narratoai.py` | Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs. | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
 
 ### Evaluation Scripts

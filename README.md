@@ -218,7 +218,7 @@ uv run python scripts/export_specified_metrics_table.py \
 
 ## Baseline 评测
 
-本 benchmark 计划对比以下三个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
+本 benchmark 计划对比以下四个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
 
 <details>
 <summary>Baseline Adapter 通用配置</summary>
@@ -288,6 +288,67 @@ CutClaw 的原始中间结果仍保存在 CutClaw 项目的 `Output/` 中；benc
 python3 scripts/validate_run.py runs/cutclaw_benchmark
 python3 -m eval.run_evaluation --run runs/cutclaw_benchmark --config eval/config.yaml
 ```
+
+</details>
+
+<details>
+<summary>NarratoAI</summary>
+
+NarratoAI: all-in-one AI-powered film commentary and automated video editing tool.
+
+- 项目：[https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
+- 当前状态：已提供 benchmark adapter。
+
+NarratoAI 原生入口是 Streamlit WebUI。为适配 Mashup-Benchmark，当前 adapter 固定使用统一的、可批量复现的流程：
+
+```text
+ASR 转写 SRT -> 短剧混剪脚本生成 -> 强制 OST=1 后处理 -> 使用 benchmark 指定 BGM 合成
+```
+
+其中 `OST=1` 表示保留原视频原声、不生成 TTS。adapter 会把每个 task 指定的 `audio.local_path` 作为 NarratoAI 最终合成阶段的 BGM 输入，而不是让 NarratoAI 随机选择音乐。
+
+运行单个任务：
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --task-id task_001 \
+  --run-id narratoai_benchmark
+```
+
+批量运行全部任务：
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --all \
+  --run-id narratoai_benchmark
+```
+
+NarratoAI 特有参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--asr-backend` | 字幕转写后端，支持 `bailian`、`local`、`firered`；默认 `bailian`。 |
+| `--no-reuse-asr` | 即使已有 `artifacts/source.srt`，也重新转写字幕。默认复用已生成字幕。 |
+| `--custom-clips` | 请求 NarratoAI 生成的候选片段数；默认按 `target_output_length_sec / target_shot_length_sec` 估算。 |
+| `--max-clip-duration-sec` | adapter 后处理时每个片段的最长时长；默认使用 task 的 `target_shot_length_sec`。 |
+| `--bgm-volume` | benchmark 指定 BGM 的混入音量。 |
+| `--original-volume` | 传给 NarratoAI 的原声音量参数。注意 NarratoAI 对 `OST=1` 片段内部会倾向保留原声。 |
+| `--subtitle-enabled` | 最终视频中烧录字幕。benchmark 默认关闭，避免字幕影响视觉评测。 |
+
+每个 task 的中间产物会保存到：
+
+```text
+runs/<run_id>/task_outputs/<task_id>/artifacts/
+  source.srt
+  narrato_script_raw.json
+  narrato_script_adapted.json
+  narratoai_payload.json
+  narrato_worker_result.json
+```
+
+该 adapter 不修改 NarratoAI 核心代码，只通过外部 worker 调用 NarratoAI 的 ASR、短剧混剪脚本生成和视频合成服务，并把输出归一化到 benchmark 的 `runs/<run_id>/` 结构。
 
 </details>
 
@@ -422,6 +483,7 @@ VideoAgent adapter 复现改动与理由：
 | --- | --- | --- |
 | `scripts/run_cutclaw.py` | 调用 CutClaw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark` |
 | `scripts/run_direct_claw.py` | 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
+| `scripts/run_narratoai.py` | 调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。 | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
 
 ### 评测脚本
