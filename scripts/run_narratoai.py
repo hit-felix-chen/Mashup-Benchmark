@@ -30,6 +30,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -170,6 +171,15 @@ def transcribe_video(payload: dict, config, srt_path: Path) -> str:
     raise ValueError(f"Unsupported ASR backend: {backend}")
 
 
+def mirror_srt_to_artifacts(shared_srt: Path, artifact_srt: Path) -> None:
+    if shared_srt.resolve() == artifact_srt.resolve():
+        return
+    artifact_srt.parent.mkdir(parents=True, exist_ok=True)
+    if artifact_srt.exists():
+        artifact_srt.unlink()
+    shutil.copy2(shared_srt, artifact_srt)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", required=True)
@@ -191,16 +201,26 @@ def main() -> int:
 
     artifacts_dir = Path(payload["artifacts_dir"]).resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    source_srt = artifacts_dir / "source.srt"
+    artifact_source_srt = artifacts_dir / "source.srt"
+    source_srt = Path(payload.get("source_srt_path") or artifact_source_srt).resolve()
     raw_script_path = artifacts_dir / "narrato_script_raw.json"
     adapted_script_path = artifacts_dir / "narrato_script_adapted.json"
     result_path = artifacts_dir / "narrato_worker_result.json"
 
     t0 = time.time()
+    if (
+        payload.get("reuse_asr", True)
+        and not source_srt.exists()
+        and artifact_source_srt.exists()
+        and artifact_source_srt.stat().st_size > 0
+    ):
+        source_srt.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(artifact_source_srt, source_srt)
     if payload.get("reuse_asr", True) and source_srt.exists() and source_srt.stat().st_size > 0:
         generated_srt = str(source_srt)
     else:
         generated_srt = transcribe_video(payload, config, source_srt)
+    mirror_srt_to_artifacts(Path(generated_srt), artifact_source_srt)
 
     provider, model, api_key, base_url = get_text_llm_config(config, payload)
     target_output = float(payload["target_output_length_sec"])
@@ -534,10 +554,12 @@ def run_one_task(
 
         worker_path = artifacts_dir / "narratoai_worker.py"
         payload_path = artifacts_dir / "narratoai_payload.json"
+        shared_srt_path = run_dir / "shared_cache" / "asr" / task["video"]["id"] / asr_backend / "source.srt"
         worker_path.write_text(WORKER_SOURCE, encoding="utf-8")
         payload = {
             "narratoai_root": str(narratoai_root),
             "artifacts_dir": str(artifacts_dir),
+            "source_srt_path": str(shared_srt_path),
             "video_path": str(video_path),
             "audio_path": str(audio_path),
             "video_id": task["video"]["id"],
