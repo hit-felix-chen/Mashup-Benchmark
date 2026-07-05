@@ -250,6 +250,7 @@ CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 - 项目：[https://github.com/GVCLab/CutClaw](https://github.com/GVCLab/CutClaw)
 - Fork：[https://github.com/hit-cxf/CutClaw](https://github.com/hit-cxf/CutClaw)
 - 论文：[https://arxiv.org/abs/2603.29664](https://arxiv.org/abs/2603.29664)
+- 项目：[https://github.com/calesthio/OpenMontage](https://github.com/calesthio/OpenMontage)
 - 当前状态：已提供 benchmark adapter。
 
 使用 benchmark 侧的 CutClaw adapter 运行指定任务，并将可评测产物写入 `runs/<run_id>/`：
