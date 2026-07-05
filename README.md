@@ -220,6 +220,13 @@ uv run python scripts/export_specified_metrics_table.py \
 
 本 benchmark 计划对比以下五个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
 
+复现实验环境总览：
+
+| 环境 | 硬件 / 系统 | Baseline | 说明 |
+| --- | --- | --- | --- |
+| Mac mini M4 | macOS 26.5.1，Build 25F80，arm64；Mac mini `Mac16,10`；Apple M4，10 核 CPU（4 个性能核心 + 6 个能效核心）；16 GB 内存 | CutClaw、NarratoAI、OpenMontage | 本地 Mac mini 复现实验环境。OpenMontage 使用 Claude Code 作为 agent，并通过 Anthropic-compatible endpoint 调用 Qwen3.7-Plus。 |
+| AutoDL 服务器 | Ubuntu 22.04，NVIDIA GeForce RTX 4090 24GB | VideoAgent、DIRECT-Claw | DIRECT-Claw 与 VideoAgent 使用同一台服务器环境和同一组模型/API 配置；二者各自使用对应 baseline 的 conda/Python 环境。 |
+
 <details>
 <summary>Baseline Adapter 通用配置</summary>
 
@@ -250,8 +257,8 @@ CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 - 项目：[https://github.com/GVCLab/CutClaw](https://github.com/GVCLab/CutClaw)
 - Fork：[https://github.com/hit-cxf/CutClaw](https://github.com/hit-cxf/CutClaw)
 - 论文：[https://arxiv.org/abs/2603.29664](https://arxiv.org/abs/2603.29664)
-- 项目：[https://github.com/calesthio/OpenMontage](https://github.com/calesthio/OpenMontage)
 - 当前状态：已提供 benchmark adapter。
+- 复现环境：Mac mini M4，本地运行。
 
 使用 benchmark 侧的 CutClaw adapter 运行指定任务，并将可评测产物写入 `runs/<run_id>/`：
 
@@ -299,6 +306,7 @@ NarratoAI: all-in-one AI-powered film commentary and automated video editing too
 
 - 项目：[https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
 - 当前状态：已提供 benchmark adapter。
+- 复现环境：Mac mini M4，本地运行。
 
 NarratoAI 原生入口是 Streamlit WebUI。为适配 Mashup-Benchmark，当前 adapter 固定使用统一的、可批量复现的流程：
 
@@ -373,6 +381,7 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 | Benchmark 环境 | benchmark 根目录下使用 Python/uv |
 | DIRECT-Claw 根目录 | `/root/autodl-tmp/DIRECT-Claw` |
 | Benchmark 根目录 | `/root/autodl-tmp/Mashup-Benchmark` |
+| 模型/API 配置 | 与 VideoAgent 复现实验使用同一组服务器环境和配置 |
 
 运行单个任务：
 
@@ -474,6 +483,7 @@ OpenMontage: agent-driven video production harness.
 
 - 当前状态：已提供 benchmark adapter。
 - 适配方式：Claude Code 作为 coding agent，按 OpenMontage 的 `AGENT_GUIDE.md`、pipeline manifest 和工具协议执行；本地 Claude Code 可通过 Anthropic-compatible 路由使用 Qwen3.7-Plus。
+- 复现环境：Mac mini M4，本地运行；agent 组合为 Claude Code + Qwen3.7-Plus。
 
 OpenMontage 不是传统的单命令 pipeline，而是“agent 即 orchestrator”的 harness。为保证 benchmark 可批量复现，当前 adapter 固定使用如下约束：
 

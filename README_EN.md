@@ -220,6 +220,13 @@ Efficiency is reported separately as API cost and end-to-end latency. See `eval/
 
 This benchmark is designed to compare the following five long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
 
+Reproduction environment overview:
+
+| Environment | Hardware / OS | Baselines | Notes |
+| --- | --- | --- | --- |
+| Mac mini M4 | macOS 26.5.1, Build 25F80, arm64; Mac mini `Mac16,10`; Apple M4, 10-core CPU (4 performance + 6 efficiency cores); 16 GB memory | CutClaw, NarratoAI, OpenMontage | Local Mac mini reproduction environment. OpenMontage uses Claude Code as the agent and calls Qwen3.7-Plus through an Anthropic-compatible endpoint. |
+| AutoDL server | Ubuntu 22.04, NVIDIA GeForce RTX 4090 24GB | VideoAgent, DIRECT-Claw | DIRECT-Claw and VideoAgent use the same server environment and model/API configuration; each baseline still uses its own conda/Python environment. |
+
 <details>
 <summary>Common Baseline Adapter Configuration</summary>
 
@@ -250,8 +257,8 @@ CutClaw: Agentic Hours-Long Video Editing via Music Synchronization
 - Project: [https://github.com/GVCLab/CutClaw](https://github.com/GVCLab/CutClaw)
 - Fork: [https://github.com/hit-cxf/CutClaw](https://github.com/hit-cxf/CutClaw)
 - Paper: [https://arxiv.org/abs/2603.29664](https://arxiv.org/abs/2603.29664)
-- Project: [https://github.com/calesthio/OpenMontage](https://github.com/calesthio/OpenMontage)
 - Status: benchmark adapter available.
+- Reproduction environment: local Mac mini M4.
 
 Use the benchmark-side CutClaw adapter to run selected tasks and write evaluation-ready artifacts to `runs/<run_id>/`:
 
@@ -300,7 +307,19 @@ DIRECT: Video Mashup Creation via Hierarchical Multi-Agent Planning and Intent-G
 - Project: [https://github.com/AK-DREAM/DIRECT-Claw](https://github.com/AK-DREAM/DIRECT-Claw)
 - Fork: [https://github.com/hit-cxf/DIRECT-Claw](https://github.com/hit-cxf/DIRECT-Claw)
 - Paper: [https://arxiv.org/abs/2604.04875](https://arxiv.org/abs/2604.04875)
-- Status: benchmark adapter pending.
+- Status: benchmark adapter available; server run in progress.
+
+Server environment used for reproduction:
+
+| Item | Configuration |
+| ---- | ------------- |
+| Machine | AutoDL Ubuntu 22.04 |
+| GPU | NVIDIA GeForce RTX 4090 24GB |
+| DIRECT-Claw environment | `/root/miniconda3/envs/direct/bin/python` |
+| Benchmark environment | Python/uv from the benchmark root |
+| DIRECT-Claw root | `/root/autodl-tmp/DIRECT-Claw` |
+| Benchmark root | `/root/autodl-tmp/Mashup-Benchmark` |
+| Model/API configuration | Same server environment and configuration as the VideoAgent reproduction run |
 
 </details>
 
@@ -311,6 +330,7 @@ NarratoAI: all-in-one AI-powered film commentary and automated video editing too
 
 - Project: [https://github.com/linyqh/NarratoAI](https://github.com/linyqh/NarratoAI)
 - Status: benchmark adapter available.
+- Reproduction environment: local Mac mini M4.
 
 NarratoAI's native entrypoint is a Streamlit WebUI. For Mashup-Benchmark, the adapter fixes a reproducible batch pipeline:
 
@@ -435,6 +455,7 @@ OpenMontage: agent-driven video production harness.
 
 - Status: benchmark adapter available.
 - Adaptation: Claude Code acts as the coding agent and follows OpenMontage's `AGENT_GUIDE.md`, pipeline manifests, and tool protocol. The local Claude Code setup can route to Qwen3.7-Plus through an Anthropic-compatible endpoint.
+- Reproduction environment: local Mac mini M4; the agent stack is Claude Code + Qwen3.7-Plus.
 
 OpenMontage is not a traditional one-command pipeline; it is a harness where the agent is the orchestrator. For reproducible benchmark runs, the adapter fixes the following constrained path:
 
