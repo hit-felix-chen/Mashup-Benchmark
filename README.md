@@ -560,10 +560,10 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 
 本仓库的可运行入口分为四类：数据/run 校验、baseline adapter、评测和导出。推荐全部在 benchmark 根目录通过 `uv run` 执行；外部 baseline 的 worker 解释器可通过对应参数显式指定。
 
-### 校验脚本
-
 <details>
-<summary><strong>`scripts/validate_benchmark.py`</strong></summary>
+<summary><strong>校验脚本</strong></summary>
+
+#### `scripts/validate_benchmark.py`
 
 校验 benchmark 元数据、任务 JSONL、manifest 和 schema 是否一致。
 
@@ -571,10 +571,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 uv run python scripts/validate_benchmark.py
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/validate_run.py`</strong></summary>
+#### `scripts/validate_run.py`
 
 校验某个 `runs/<run_id>` 是否符合提交结构和 schema。失败 task 可以没有 `output.mp4`，但必须记录非空 `error`。
 
@@ -584,10 +581,10 @@ uv run python scripts/validate_run.py runs/<run_id>
 
 </details>
 
-### Baseline Adapter 脚本
-
 <details>
-<summary><strong>`scripts/run_cutclaw.py`</strong></summary>
+<summary><strong>Baseline Adapter 脚本</strong></summary>
+
+#### `scripts/run_cutclaw.py`
 
 调用 CutClaw，生成标准化 `runs/<run_id>/` 输出。
 
@@ -595,10 +592,7 @@ uv run python scripts/validate_run.py runs/<run_id>
 uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_direct_claw.py`</strong></summary>
+#### `scripts/run_direct_claw.py`
 
 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。
 
@@ -606,10 +600,7 @@ uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id t
 uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_narratoai.py`</strong></summary>
+#### `scripts/run_narratoai.py`
 
 调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。
 
@@ -617,10 +608,7 @@ uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw
 uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_videoagent.py`</strong></summary>
+#### `scripts/run_videoagent.py`
 
 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。
 
@@ -628,10 +616,7 @@ uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --tas
 uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_openmontage.py`</strong></summary>
+#### `scripts/run_openmontage.py`
 
 调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。
 
@@ -641,10 +626,10 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 
 </details>
 
-### 评测脚本
-
 <details>
-<summary><strong>`python -m eval.run_evaluation`</strong></summary>
+<summary><strong>评测脚本</strong></summary>
+
+#### `python -m eval.run_evaluation`
 
 计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及可选 `OQ` 后的 `Quality`。输出到 `eval_results/<eval_id>/evaluation_scores.jsonl` 和 `summary.json`。
 
@@ -652,10 +637,7 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
-</details>
-
-<details>
-<summary><strong>`python -m eval.run_specified_metrics`</strong></summary>
+#### `python -m eval.run_specified_metrics`
 
 单独计算专用指标，不参与主 `Quality`，用于按 prompt 类型做失败归因。输出到 `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` 和 `specified_metric_summary.json`。
 
@@ -667,10 +649,10 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 
 </details>
 
-### 导出脚本
-
 <details>
-<summary><strong>`scripts/export_evaluation_table.py`</strong></summary>
+<summary><strong>导出脚本</strong></summary>
+
+#### `scripts/export_evaluation_table.py`
 
 将主评分结果导出为 Excel，按任务类型汇总 `IF/BCS/AEC/VQ/TC/NC/Quality`。
 
@@ -678,10 +660,7 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/export_specified_metrics_table.py`</strong></summary>
+#### `scripts/export_specified_metrics_table.py`
 
 将专用指标结果导出为 Excel，按类型和指标汇总。
 
@@ -689,10 +668,7 @@ uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id 
 uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/export_evaluation_detail_table.py`</strong></summary>
+#### `scripts/export_evaluation_detail_table.py`
 
 将主评分和专用指标合并导出为 task 级明细表；非对应 prompt 类型的专用指标留空。
 

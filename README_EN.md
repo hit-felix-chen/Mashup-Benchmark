@@ -534,10 +534,10 @@ This adapter does not modify OpenMontage's core code. It creates the benchmark p
 
 Runnable entrypoints are grouped into validation, baseline adapters, evaluation, and export utilities. Run them from the benchmark root with `uv run` by default; baseline worker interpreters can be overridden through each adapter's arguments.
 
-### Validation Scripts
-
 <details>
-<summary><strong>`scripts/validate_benchmark.py`</strong></summary>
+<summary><strong>Validation Scripts</strong></summary>
+
+#### `scripts/validate_benchmark.py`
 
 Validate benchmark metadata, task JSONL files, manifests, and schema consistency.
 
@@ -545,10 +545,7 @@ Validate benchmark metadata, task JSONL files, manifests, and schema consistency
 uv run python scripts/validate_benchmark.py
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/validate_run.py`</strong></summary>
+#### `scripts/validate_run.py`
 
 Validate one submitted `runs/<run_id>` directory against the required structure and schemas. Failed tasks may omit `output.mp4`, but must record a non-null `error`.
 
@@ -558,10 +555,10 @@ uv run python scripts/validate_run.py runs/<run_id>
 
 </details>
 
-### Baseline Adapter Scripts
-
 <details>
-<summary><strong>`scripts/run_cutclaw.py`</strong></summary>
+<summary><strong>Baseline Adapter Scripts</strong></summary>
+
+#### `scripts/run_cutclaw.py`
 
 Run CutClaw and export standardized `runs/<run_id>/` outputs.
 
@@ -569,10 +566,7 @@ Run CutClaw and export standardized `runs/<run_id>/` outputs.
 uv run python scripts/run_cutclaw.py --cutclaw-root /path/to/CutClaw --task-id task_001 --run-id cutclaw_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_direct_claw.py`</strong></summary>
+#### `scripts/run_direct_claw.py`
 
 Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs.
 
@@ -580,10 +574,7 @@ Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs.
 uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_narratoai.py`</strong></summary>
+#### `scripts/run_narratoai.py`
 
 Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs.
 
@@ -591,10 +582,7 @@ Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adapt
 uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_videoagent.py`</strong></summary>
+#### `scripts/run_videoagent.py`
 
 Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs.
 
@@ -602,10 +590,7 @@ Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run
 uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/run_openmontage.py`</strong></summary>
+#### `scripts/run_openmontage.py`
 
 Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs.
 
@@ -615,10 +600,10 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 
 </details>
 
-### Evaluation Scripts
-
 <details>
-<summary><strong>`python -m eval.run_evaluation`</strong></summary>
+<summary><strong>Evaluation Scripts</strong></summary>
+
+#### `python -m eval.run_evaluation`
 
 Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, optional `OQ`, and `Quality`. Outputs are written to `eval_results/<eval_id>/evaluation_scores.jsonl` and `summary.json`.
 
@@ -626,10 +611,7 @@ Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, o
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
-</details>
-
-<details>
-<summary><strong>`python -m eval.run_specified_metrics`</strong></summary>
+#### `python -m eval.run_specified_metrics`
 
 Compute specified metrics separately from the main `Quality` score for prompt-type-specific failure analysis. Outputs are written to `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` and `specified_metric_summary.json`.
 
@@ -641,10 +623,10 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 
 </details>
 
-### Export Scripts
-
 <details>
-<summary><strong>`scripts/export_evaluation_table.py`</strong></summary>
+<summary><strong>Export Scripts</strong></summary>
+
+#### `scripts/export_evaluation_table.py`
 
 Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ/TC/NC/Quality`.
 
@@ -652,10 +634,7 @@ Export main evaluation results to Excel, grouped by task type for `IF/BCS/AEC/VQ
 uv run python scripts/export_evaluation_table.py --model-name CutClaw --eval-id <eval_id>
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/export_specified_metrics_table.py`</strong></summary>
+#### `scripts/export_specified_metrics_table.py`
 
 Export specified metrics to Excel, grouped by prompt type and metric.
 
@@ -663,10 +642,7 @@ Export specified metrics to Excel, grouped by prompt type and metric.
 uv run python scripts/export_specified_metrics_table.py --model-name CutClaw --specified-metrics-id <specified_metrics_id>
 ```
 
-</details>
-
-<details>
-<summary><strong>`scripts/export_evaluation_detail_table.py`</strong></summary>
+#### `scripts/export_evaluation_detail_table.py`
 
 Export task-level details by merging main scores and specified metrics; specified metrics outside the task's prompt type are left blank.
 
