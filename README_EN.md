@@ -218,7 +218,7 @@ Efficiency is reported separately as API cost and end-to-end latency. See `eval/
 
 ## Baseline Evaluation
 
-This benchmark is designed to compare the following four long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
+This benchmark is designed to compare the following five long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
 
 <details>
 <summary>Common Baseline Adapter Configuration</summary>
@@ -427,6 +427,82 @@ The adapter only changes the engineering entrypoint and environment compatibilit
 
 </details>
 
+<details>
+<summary>OpenMontage</summary>
+
+OpenMontage: agent-driven video production harness.
+
+- Status: benchmark adapter available.
+- Adaptation: Claude Code acts as the coding agent and follows OpenMontage's `AGENT_GUIDE.md`, pipeline manifests, and tool protocol. The local Claude Code setup can route to Qwen3.7-Plus through an Anthropic-compatible endpoint.
+
+OpenMontage is not a traditional one-command pipeline; it is a harness where the agent is the orchestrator. For reproducible benchmark runs, the adapter fixes the following constrained path:
+
+```text
+Claude Code/Qwen agent -> OpenMontage hybrid/source-footage-led -> FFmpeg compose
+```
+
+For each task, the adapter creates an isolated OpenMontage project and writes the benchmark task, source video, specified BGM, and agent prompt. The agent must use only the benchmark-provided video and audio, with no downloaded assets, generated assets, TTS, or narration. The final output is rendered through OpenMontage's `video_compose` / FFmpeg path as `renders/final.mp4`, then copied into the benchmark-standard `runs/<run_id>/task_outputs/<task_id>/output.mp4`.
+
+Generate a dry-run project and prompt first:
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --task-id task_001 \
+  --run-id openmontage_dryrun \
+  --dry-run \
+  --overwrite-project
+```
+
+Run one task:
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --task-id task_001 \
+  --run-id openmontage_benchmark \
+  --overwrite-project
+```
+
+Run all tasks:
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --all \
+  --run-id openmontage_benchmark
+```
+
+OpenMontage-specific arguments:
+
+| Argument | Description |
+| --- | --- |
+| `--openmontage-root` | OpenMontage project root. Defaults to an `OpenMontage` directory next to this benchmark repo. |
+| `--agent-cmd` | Claude Code executable path. Defaults to `/Users/xinfanchen/.local/bin/claude`. |
+| `--agent-model` | Optional model name passed to Claude Code. Omit it to use the current Claude Code configuration. |
+| `--agent-output-format` | Claude Code output format. Defaults to `stream-json` for complete agent logs. |
+| `--permission-mode` | Claude Code permission mode. Defaults to `acceptEdits`; combine with `--bypass-permissions` if non-interactive permissions still block execution. |
+| `--bypass-permissions` | Pass `--dangerously-skip-permissions` to Claude Code; recommended only in a trusted local benchmark environment. |
+| `--max-budget-usd` | Optional maximum API budget per task for Claude Code. |
+| `--timeout-sec` | Optional timeout for one task's agent run. |
+| `--overwrite-project` | Delete and recreate the OpenMontage project for the selected task. |
+| `--max-cuts` | Maximum number of cuts communicated to the agent. Defaults to `24`. |
+| `--bgm-volume` | Target BGM volume hint. Defaults to `0.75`. |
+| `--original-volume` | Source-audio mix-in hint. Defaults to `0.15`. |
+
+Per-task standardized artifacts are stored under:
+
+```text
+runs/<run_id>/task_outputs/<task_id>/artifacts/
+  benchmark_task.json
+  openmontage_agent_prompt.md
+  brief.json                         # if written by the agent
+  edit_decisions.json                # if written by the agent
+  render_report.json                 # if written by the agent
+  openmontage_agent_result.json      # if written by the agent
+```
+
+This adapter does not modify OpenMontage's core code. It creates the benchmark project, generates a non-interactive agent prompt, invokes Claude Code, and normalizes OpenMontage outputs into the benchmark-standard `runs/<run_id>/` structure.
+
+</details>
+
 ## Scripts
 
 Runnable entrypoints are grouped into data/run validation, baseline adapters, evaluation, and export utilities. Run them from the benchmark root with `uv run` by default; baseline worker interpreters can be overridden through each adapter's arguments.
@@ -446,6 +522,7 @@ Runnable entrypoints are grouped into data/run validation, baseline adapters, ev
 | `scripts/run_direct_claw.py` | Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
 | `scripts/run_narratoai.py` | Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs. | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
+| `scripts/run_openmontage.py` | Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs. | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --overwrite-project` |
 
 ### Evaluation Scripts
 

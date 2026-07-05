@@ -218,7 +218,7 @@ uv run python scripts/export_specified_metrics_table.py \
 
 ## Baseline 评测
 
-本 benchmark 计划对比以下四个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
+本 benchmark 计划对比以下五个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
 
 <details>
 <summary>Baseline Adapter 通用配置</summary>
@@ -466,6 +466,82 @@ VideoAgent adapter 复现改动与理由：
 
 </details>
 
+<details>
+<summary>OpenMontage</summary>
+
+OpenMontage: agent-driven video production harness.
+
+- 当前状态：已提供 benchmark adapter。
+- 适配方式：Claude Code 作为 coding agent，按 OpenMontage 的 `AGENT_GUIDE.md`、pipeline manifest 和工具协议执行；本地 Claude Code 可通过 Anthropic-compatible 路由使用 Qwen3.7-Plus。
+
+OpenMontage 不是传统的单命令 pipeline，而是“agent 即 orchestrator”的 harness。为保证 benchmark 可批量复现，当前 adapter 固定使用如下约束：
+
+```text
+Claude Code/Qwen agent -> OpenMontage hybrid/source-footage-led -> FFmpeg compose
+```
+
+adapter 会为每个 task 创建独立的 OpenMontage project，写入 benchmark task、源视频、指定 BGM 和 agent prompt。agent 必须只使用 benchmark 提供的视频和音频，不下载素材、不生成素材、不生成 TTS/旁白，最终通过 OpenMontage 的 `video_compose` / FFmpeg 路径输出一个 `renders/final.mp4`，再由 adapter 复制为 benchmark 标准的 `runs/<run_id>/task_outputs/<task_id>/output.mp4`。
+
+先生成 dry-run 任务包和 prompt：
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --task-id task_001 \
+  --run-id openmontage_dryrun \
+  --dry-run \
+  --overwrite-project
+```
+
+真实运行单个任务：
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --task-id task_001 \
+  --run-id openmontage_benchmark \
+  --overwrite-project
+```
+
+批量运行全部任务：
+
+```bash
+uv run python scripts/run_openmontage.py \
+  --all \
+  --run-id openmontage_benchmark
+```
+
+OpenMontage 特有参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--openmontage-root` | OpenMontage 项目根目录，默认使用 benchmark 同级目录下的 `OpenMontage`。 |
+| `--agent-cmd` | Claude Code 可执行文件路径，默认 `/Users/xinfanchen/.local/bin/claude`。 |
+| `--agent-model` | 可选，显式传给 Claude Code 的模型名；默认不传，使用当前 Claude Code 配置。 |
+| `--agent-output-format` | Claude Code 输出格式，默认 `stream-json`，便于记录完整 agent 日志。 |
+| `--permission-mode` | Claude Code 权限模式，默认 `acceptEdits`。如果非交互权限仍阻塞，可配合 `--bypass-permissions`。 |
+| `--bypass-permissions` | 向 Claude Code 传入 `--dangerously-skip-permissions`；只建议在可信本地 benchmark 环境中使用。 |
+| `--max-budget-usd` | Claude Code 单次任务的最大 API 预算，可选。 |
+| `--timeout-sec` | 单个 task 的 agent 执行超时时间，可选。 |
+| `--overwrite-project` | 删除并重建该 task 对应的 OpenMontage project。 |
+| `--max-cuts` | prompt 中给 agent 的最大剪辑片段数约束，默认 `24`。 |
+| `--bgm-volume` | 指定 BGM 的目标音量提示，默认 `0.75`。 |
+| `--original-volume` | 原视频声音混入提示，默认 `0.15`。 |
+
+每个 task 的标准化中间产物会保存到：
+
+```text
+runs/<run_id>/task_outputs/<task_id>/artifacts/
+  benchmark_task.json
+  openmontage_agent_prompt.md
+  brief.json                         # 如果 agent 成功写出
+  edit_decisions.json                # 如果 agent 成功写出
+  render_report.json                 # 如果 agent 成功写出
+  openmontage_agent_result.json      # 如果 agent 成功写出
+```
+
+该 adapter 不修改 OpenMontage 核心代码；它只创建 benchmark project、生成非交互 agent prompt、调用 Claude Code，并把 OpenMontage 输出归一化到 benchmark 的 `runs/<run_id>/` 结构。
+
+</details>
+
 ## 脚本说明
 
 本仓库的可运行入口分为三类：数据/run 校验、baseline adapter、评测与导出。推荐全部在 benchmark 根目录通过 `uv run` 执行；外部 baseline 的 worker 解释器可通过对应参数显式指定。
@@ -485,6 +561,7 @@ VideoAgent adapter 复现改动与理由：
 | `scripts/run_direct_claw.py` | 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
 | `scripts/run_narratoai.py` | 调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。 | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
+| `scripts/run_openmontage.py` | 调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。 | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --overwrite-project` |
 
 ### 评测脚本
 
