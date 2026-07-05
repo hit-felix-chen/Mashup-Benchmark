@@ -499,6 +499,7 @@ uv run python scripts/run_openmontage.py \
 uv run python scripts/run_openmontage.py \
   --task-id task_001 \
   --run-id openmontage_benchmark \
+  --bypass-permissions \
   --overwrite-project
 ```
 
@@ -507,7 +508,8 @@ uv run python scripts/run_openmontage.py \
 ```bash
 uv run python scripts/run_openmontage.py \
   --all \
-  --run-id openmontage_benchmark
+  --run-id openmontage_benchmark \
+  --bypass-permissions
 ```
 
 OpenMontage 特有参数：
@@ -562,7 +564,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 | `scripts/run_direct_claw.py` | 调用 DIRECT-Claw，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
 | `scripts/run_narratoai.py` | 调用 NarratoAI，按 `ASR -> 短剧混剪 -> OST=1 -> 指定 BGM 合成` 流程生成标准化输出。 | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | 调用 VideoAgent 固定音乐混剪流程，生成标准化 `runs/<run_id>/` 输出。 | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
-| `scripts/run_openmontage.py` | 调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。 | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --overwrite-project` |
+| `scripts/run_openmontage.py` | 调用 OpenMontage agent harness，通过 Claude Code/Qwen 驱动 OpenMontage 工具生成标准化输出。 | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project` |
 
 ### 评测脚本
 

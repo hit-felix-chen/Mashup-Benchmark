@@ -460,6 +460,7 @@ Run one task:
 uv run python scripts/run_openmontage.py \
   --task-id task_001 \
   --run-id openmontage_benchmark \
+  --bypass-permissions \
   --overwrite-project
 ```
 
@@ -468,7 +469,8 @@ Run all tasks:
 ```bash
 uv run python scripts/run_openmontage.py \
   --all \
-  --run-id openmontage_benchmark
+  --run-id openmontage_benchmark \
+  --bypass-permissions
 ```
 
 OpenMontage-specific arguments:
@@ -523,7 +525,7 @@ Runnable entrypoints are grouped into data/run validation, baseline adapters, ev
 | `scripts/run_direct_claw.py` | Run DIRECT-Claw and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_direct_claw.py --task-id task_001 --run-id direct_claw_benchmark` |
 | `scripts/run_narratoai.py` | Run NarratoAI with the `ASR -> short mix -> OST=1 -> benchmark BGM render` adaptation pipeline and export standardized outputs. | `uv run python scripts/run_narratoai.py --narratoai-root /path/to/NarratoAI --task-id task_001 --run-id narratoai_benchmark` |
 | `scripts/run_videoagent.py` | Run VideoAgent's fixed music-montage pipeline and export standardized `runs/<run_id>/` outputs. | `uv run python scripts/run_videoagent.py --task-id task_001 --run-id videoagent_benchmark` |
-| `scripts/run_openmontage.py` | Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs. | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --overwrite-project` |
+| `scripts/run_openmontage.py` | Run the OpenMontage agent harness through Claude Code/Qwen and export standardized outputs. | `uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage_benchmark --bypass-permissions --overwrite-project` |
 
 ### Evaluation Scripts
 

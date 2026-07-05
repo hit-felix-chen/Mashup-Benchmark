@@ -130,12 +130,19 @@ def stream_command(
     cwd: Path,
     dry_run: bool = False,
     timeout_sec: float | None = None,
+    stdin_text: str | None = None,
 ) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     display = shlex.join(cmd)
     print(f"$ {display}")
     with log_path.open("w", encoding="utf-8") as log:
         log.write(f"$ {display}\n\n")
+        if stdin_text:
+            log.write("[stdin]\n")
+            log.write(stdin_text)
+            if not stdin_text.endswith("\n"):
+                log.write("\n")
+            log.write("\n")
         log.flush()
         if dry_run:
             log.write("[dry-run] command not executed\n")
@@ -148,11 +155,18 @@ def stream_command(
             cmd,
             cwd=cwd,
             env=env,
+            stdin=subprocess.PIPE if stdin_text is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
         )
+        if stdin_text is not None:
+            assert proc.stdin is not None
+            proc.stdin.write(stdin_text)
+            if not stdin_text.endswith("\n"):
+                proc.stdin.write("\n")
+            proc.stdin.close()
         assert proc.stdout is not None
         start = time.time()
         try:
@@ -413,7 +427,6 @@ def copy_openmontage_artifacts(paths: dict[str, Path], artifacts_dir: Path) -> d
 def build_claude_command(
     *,
     agent_cmd: Path,
-    prompt_path: Path,
     openmontage_root: Path,
     benchmark_root: Path,
     output_format: str,
@@ -430,13 +443,14 @@ def build_claude_command(
         "--add-dir", str(openmontage_root),
         "--add-dir", str(benchmark_root),
     ]
+    if output_format == "stream-json":
+        cmd.append("--verbose")
     if agent_model:
         cmd.extend(["--model", agent_model])
     if max_budget_usd is not None:
         cmd.extend(["--max-budget-usd", str(max_budget_usd)])
     if bypass_permissions:
         cmd.append("--dangerously-skip-permissions")
-    cmd.append(f"Read and execute this benchmark instruction file exactly: {prompt_path}")
     return cmd
 
 
@@ -502,7 +516,6 @@ def run_one_task(
     else:
         cmd = build_claude_command(
             agent_cmd=agent_cmd,
-            prompt_path=paths["prompt_path"],
             openmontage_root=openmontage_root,
             benchmark_root=benchmark_root,
             output_format=output_format,
@@ -511,12 +524,14 @@ def run_one_task(
             max_budget_usd=max_budget_usd,
             bypass_permissions=bypass_permissions,
         )
+        stdin_text = f"Read and execute this benchmark instruction file exactly: {paths['prompt_path']}"
         rc = stream_command(
             cmd,
             logs_dir / "openmontage_agent.log",
             cwd=openmontage_root,
             dry_run=dry_run,
             timeout_sec=timeout_sec,
+            stdin_text=stdin_text,
         )
         if rc != 0:
             raise RuntimeError(f"OpenMontage agent failed with exit code {rc}")
