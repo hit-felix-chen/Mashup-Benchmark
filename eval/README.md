@@ -38,6 +38,8 @@ Run them separately:
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
 ```
 
+By default, tasks are evaluated with `--concurrency 10`. Use `--concurrency <N>` to adjust parallelism. Output JSONL rows are still written in the original task order.
+
 Outputs:
 
 ```text
@@ -64,6 +66,8 @@ cp eval/config.example.yaml eval/config.yaml
 ```bash
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
+
+By default, tasks are evaluated with `--concurrency 10`. Use `--concurrency <N>` to adjust parallelism. Output JSONL rows are still written in the original task order.
 
 Smoke-test automatic metrics only:
 

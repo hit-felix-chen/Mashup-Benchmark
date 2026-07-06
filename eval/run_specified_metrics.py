@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,7 @@ def main() -> int:
     parser.add_argument("--config", default="eval/config.yaml", help="Path to evaluator config YAML.")
     parser.add_argument("--specified-metrics-id", default=None, help="Specified-metrics id. Defaults to <run_id>_specified_metrics_<timestamp>.")
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N records for smoke tests.")
+    parser.add_argument("--concurrency", type=int, default=10, help="Number of tasks to evaluate concurrently.")
     args = parser.parse_args()
 
     run_dir = Path(args.run)
@@ -78,9 +80,10 @@ def main() -> int:
     if args.limit is not None:
         run_records = run_records[: args.limit]
 
-    judge = SpecifiedMetricsJudge(config)
-    outputs: list[dict[str, Any]] = []
-    for idx, record in enumerate(run_records, 1):
+    total_records = len(run_records)
+    concurrency = max(1, int(args.concurrency or 1))
+
+    def evaluate_one(idx: int, record: dict[str, Any]) -> tuple[int, dict[str, Any], str | None]:
         task_id = record["task_id"]
         task = tasks[task_id]
         output: dict[str, Any] = {
@@ -100,10 +103,10 @@ def main() -> int:
             "efficiency": {"wall_clock_sec": record.get("wall_clock_sec")},
         }
         if record.get("status") != "success":
-            outputs.append(output)
-            continue
+            return idx, output, None
 
         output_video = ROOT / record["output_video"]
+        judge = SpecifiedMetricsJudge(config)
         try:
             result = judge.score_specified_metrics(output_video, task, record)
         except VLMJudgeSkipped as exc:
@@ -121,8 +124,8 @@ def main() -> int:
                 "request_id": exc.request_id,
                 "message": exc.message,
             }
-            print(
-                f"[{idx}/{len(run_records)}] specified-metrics skipped {task_id} "
+            message = (
+                f"[{idx}/{total_records}] specified-metrics skipped {task_id} "
                 f"({output['task_type']}): {exc.failure_type}"
             )
         else:
@@ -140,8 +143,27 @@ def main() -> int:
                 "video_size_bytes": result.get("video_size_bytes"),
                 "usage": result.get("usage"),
             }
-            print(f"[{idx}/{len(run_records)}] specified-metrics evaluated {task_id} ({output['task_type']})")
-        outputs.append(output)
+            message = f"[{idx}/{total_records}] specified-metrics evaluated {task_id} ({output['task_type']})"
+        return idx, output, message
+
+    indexed_records = list(enumerate(run_records, 1))
+    outputs_by_index: dict[int, dict[str, Any]] = {}
+    if concurrency == 1:
+        for idx, record in indexed_records:
+            result_idx, output, message = evaluate_one(idx, record)
+            outputs_by_index[result_idx] = output
+            if message:
+                print(message)
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(evaluate_one, idx, record) for idx, record in indexed_records]
+            for future in as_completed(futures):
+                result_idx, output, message = future.result()
+                outputs_by_index[result_idx] = output
+                if message:
+                    print(message)
+
+    outputs = [outputs_by_index[idx] for idx, _record in indexed_records]
 
     specified_metrics_dir.mkdir(parents=True, exist_ok=True)
     scores_path = specified_metrics_dir / "specified_metric_scores.jsonl"

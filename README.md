@@ -636,6 +636,8 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+默认并发数为 10，可通过 `--concurrency <N>` 调整；输出文件仍按 task 原始顺序写入。
+
 如果某个成片触发 VLM 服务端内容检查，评测器会跳过该 task 的 VLM-as-judge 指标并继续处理后续任务；该 task 仍保留本地自动指标，`Quality` 会基于可用指标重新归一化，跳过原因记录在 `judge.status = skipped` 和 `summary.json` 的 `vlm_judge` 字段中。
 
 #### `python -m eval.run_specified_metrics`
@@ -645,6 +647,8 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
 ```
+
+默认并发数为 10，可通过 `--concurrency <N>` 调整；输出文件仍按 task 原始顺序写入。
 
 专用指标同样会跳过触发 VLM 内容检查的 task，并在 `judge.status = skipped` 中记录原因；该 task 不参与专用指标均值。
 

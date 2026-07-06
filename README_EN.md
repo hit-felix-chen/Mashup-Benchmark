@@ -610,6 +610,8 @@ Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, o
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+The default concurrency is 10 and can be changed with `--concurrency <N>`; output files are still written in the original task order.
+
 If a generated video triggers server-side VLM content inspection, the evaluator skips that task's VLM-as-judge metrics and continues with the remaining tasks. The task still keeps local automatic metrics, `Quality` is renormalized over available metrics, and the skip reason is recorded under `judge.status = skipped` and the `vlm_judge` field in `summary.json`.
 
 #### `python -m eval.run_specified_metrics`
@@ -619,6 +621,8 @@ Compute specified metrics separately from the main `Quality` score for prompt-ty
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
 ```
+
+The default concurrency is 10 and can be changed with `--concurrency <N>`; output files are still written in the original task order.
 
 Specified metrics also skip tasks that trigger VLM content inspection and record the reason under `judge.status = skipped`; that task is excluded from specified-metric averages.
 
