@@ -610,6 +610,8 @@ Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, o
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+If a generated video triggers server-side VLM content inspection, the evaluator skips that task's VLM-as-judge metrics and continues with the remaining tasks. The task still keeps local automatic metrics, `Quality` is renormalized over available metrics, and the skip reason is recorded under `judge.status = skipped` and the `vlm_judge` field in `summary.json`.
+
 #### `python -m eval.run_specified_metrics`
 
 Compute specified metrics separately from the main `Quality` score for prompt-type-specific failure analysis. Outputs are written to `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` and `specified_metric_summary.json`.
@@ -617,6 +619,8 @@ Compute specified metrics separately from the main `Quality` score for prompt-ty
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
 ```
+
+Specified metrics also skip tasks that trigger VLM content inspection and record the reason under `judge.status = skipped`; that task is excluded from specified-metric averages.
 
 `eval/config.yaml` configures the VLM model name, API key, base URL, timeout, and metric weights. This file contains local credentials and is ignored by Git; do not commit it.
 

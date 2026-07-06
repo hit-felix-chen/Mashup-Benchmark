@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from eval.config import load_config
 from eval.evaluators.specified_metrics_judge import SpecifiedMetricsJudge
+from eval.evaluators.vlm_judge import VLMJudgeSkipped
 from eval.run_evaluation import ROOT, load_run_records, load_tasks, write_json
 
 
@@ -103,22 +104,44 @@ def main() -> int:
             continue
 
         output_video = ROOT / record["output_video"]
-        result = judge.score_specified_metrics(output_video, task, record)
-        output["scores"] = result["scores"]
-        output["metric_details"] = result["metric_details"]
-        output["rationale"] = result.get("rationale") or {}
-        output["diagnostics"] = result.get("diagnostics") or {}
-        output["judge"] = {
-            "type": "vlm_specified_metrics",
-            "model": result.get("model"),
-            "provider": result.get("vlm_provider"),
-            "input_type": result.get("input_type"),
-            "score_scale": result.get("score_scale"),
-            "video_size_bytes": result.get("video_size_bytes"),
-            "usage": result.get("usage"),
-        }
+        try:
+            result = judge.score_specified_metrics(output_video, task, record)
+        except VLMJudgeSkipped as exc:
+            skip_detail = exc.to_dict()
+            output["diagnostics"] = {"vlm_skip": skip_detail}
+            output["judge"] = {
+                "type": "vlm_specified_metrics",
+                "status": "skipped",
+                "model": exc.model or judge.model,
+                "provider": exc.provider or judge.provider,
+                "input_type": "video",
+                "failure_type": exc.failure_type,
+                "status_code": exc.status_code,
+                "code": exc.code,
+                "request_id": exc.request_id,
+                "message": exc.message,
+            }
+            print(
+                f"[{idx}/{len(run_records)}] specified-metrics skipped {task_id} "
+                f"({output['task_type']}): {exc.failure_type}"
+            )
+        else:
+            output["scores"] = result["scores"]
+            output["metric_details"] = result["metric_details"]
+            output["rationale"] = result.get("rationale") or {}
+            output["diagnostics"] = result.get("diagnostics") or {}
+            output["judge"] = {
+                "type": "vlm_specified_metrics",
+                "status": "success",
+                "model": result.get("model"),
+                "provider": result.get("vlm_provider"),
+                "input_type": result.get("input_type"),
+                "score_scale": result.get("score_scale"),
+                "video_size_bytes": result.get("video_size_bytes"),
+                "usage": result.get("usage"),
+            }
+            print(f"[{idx}/{len(run_records)}] specified-metrics evaluated {task_id} ({output['task_type']})")
         outputs.append(output)
-        print(f"[{idx}/{len(run_records)}] specified-metrics evaluated {task_id} ({output['task_type']})")
 
     specified_metrics_dir.mkdir(parents=True, exist_ok=True)
     scores_path = specified_metrics_dir / "specified_metric_scores.jsonl"
@@ -127,6 +150,16 @@ def main() -> int:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     summary = summarize_specified_metrics(outputs)
+    vlm_skips = [
+        (row.get("judge") or {})
+        for row in outputs
+        if (row.get("judge") or {}).get("status") == "skipped"
+    ]
+    if vlm_skips:
+        summary["vlm_judge"] = {
+            "skipped_count": len(vlm_skips),
+            "skip_reasons": dict(Counter(skip.get("failure_type") or "unknown" for skip in vlm_skips)),
+        }
     summary.update({
         "specified_metrics_id": specified_metrics_id,
         "run_id": run_id,

@@ -636,6 +636,8 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
 ```
 
+如果某个成片触发 VLM 服务端内容检查，评测器会跳过该 task 的 VLM-as-judge 指标并继续处理后续任务；该 task 仍保留本地自动指标，`Quality` 会基于可用指标重新归一化，跳过原因记录在 `judge.status = skipped` 和 `summary.json` 的 `vlm_judge` 字段中。
+
 #### `python -m eval.run_specified_metrics`
 
 单独计算专用指标，不参与主 `Quality`，用于按 prompt 类型做失败归因。输出到 `eval_results/<specified_metrics_id>/specified_metric_scores.jsonl` 和 `specified_metric_summary.json`。
@@ -643,6 +645,8 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 ```bash
 uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/config.yaml
 ```
+
+专用指标同样会跳过触发 VLM 内容检查的 task，并在 `judge.status = skipped` 中记录原因；该 task 不参与专用指标均值。
 
 `eval/config.yaml` 用于配置 VLM 模型名、API key、base URL、超时时间和指标权重。该文件包含本地密钥配置，已被 Git 忽略；请不要提交。
 

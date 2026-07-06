@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -48,12 +49,23 @@ def normalized_score_key(value: Any) -> str:
     return str(value).strip().strip("'\"")
 
 
+def to_float_score(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
 def normalized_scores(row: dict[str, Any]) -> dict[str, float]:
     scores = row.get("scores") or {}
     normalized = {}
     for key, value in scores.items():
-        if value is not None:
-            normalized[normalized_score_key(key)] = float(value)
+        score = to_float_score(value)
+        if score is not None:
+            normalized[normalized_score_key(key)] = score
     return normalized
 
 

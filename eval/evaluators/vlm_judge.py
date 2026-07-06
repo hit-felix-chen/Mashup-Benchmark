@@ -138,6 +138,44 @@ def _normalize_diagnostics(value: Any) -> dict[str, Any]:
     }
 
 
+def _is_data_inspection_failure(*parts: Any) -> bool:
+    text = " ".join(str(part or "") for part in parts)
+    return "DataInspectionFailed" in text or "inappropriate content" in text
+
+
+class VLMJudgeSkipped(RuntimeError):
+    def __init__(
+        self,
+        failure_type: str,
+        message: str,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        status_code: int | None = None,
+        code: str | None = None,
+        request_id: str | None = None,
+    ):
+        super().__init__(message)
+        self.failure_type = failure_type
+        self.message = message
+        self.provider = provider
+        self.model = model
+        self.status_code = status_code
+        self.code = code
+        self.request_id = request_id
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "failure_type": self.failure_type,
+            "message": self.message,
+            "provider": self.provider,
+            "model": self.model,
+            "status_code": self.status_code,
+            "code": self.code,
+            "request_id": self.request_id,
+        }
+
+
 class VLMJudge:
     def __init__(self, config: dict[str, Any]):
         vlm = config.get("vlm") or {}
@@ -183,6 +221,14 @@ class VLMJudge:
             except urllib.error.HTTPError as exc:
                 last_error = exc
                 response_body = exc.read().decode("utf-8", errors="replace")[-2000:]
+                if _is_data_inspection_failure(exc.code, response_body):
+                    raise VLMJudgeSkipped(
+                        "data_inspection_failed",
+                        f"VLM request skipped: HTTP {exc.code}: {response_body}",
+                        provider=self.provider,
+                        model=self.model,
+                        status_code=exc.code,
+                    ) from exc
                 if exc.code not in retryable_http_codes or attempt >= self.max_retries:
                     raise RuntimeError(f"VLM request failed: HTTP {exc.code}: {response_body}") from exc
                 print(
@@ -224,6 +270,16 @@ class VLMJudge:
                     }
 
                 message = f"DashScope {response.status_code} {response.code}: {response.message}"
+                if _is_data_inspection_failure(response.code, response.message):
+                    raise VLMJudgeSkipped(
+                        "data_inspection_failed",
+                        message,
+                        provider=self.provider,
+                        model=self.model,
+                        status_code=int(response.status_code),
+                        code=str(response.code),
+                        request_id=str(response.request_id or ""),
+                    )
                 last_error = RuntimeError(message)
                 if response.status_code not in retryable_http_codes or attempt >= self.max_retries:
                     raise RuntimeError(message)

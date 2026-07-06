@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 from datetime import UTC, datetime
@@ -51,13 +52,20 @@ def normalized_score_key(value: Any) -> str:
     return str(value).strip().strip("'\"")
 
 
+def to_float_score(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
 def score_value(row: dict[str, Any], metric: str) -> float | None:
     scores = row.get("scores") or {}
     normalized_scores = {normalized_score_key(key): value for key, value in scores.items()}
-    value = normalized_scores.get(metric)
-    if value is None:
-        return None
-    return float(value)
+    return to_float_score(normalized_scores.get(metric))
 
 
 def mean_or_none(values: list[float]) -> float | None:
