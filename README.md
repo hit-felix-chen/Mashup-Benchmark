@@ -223,21 +223,21 @@ uv run python scripts/export_specified_metrics_table.py \
 
 效率单独报告，包括 API 成本和端到端耗时。可运行评测器的说明见 `eval/README.md`。
 
-## Baseline 评测
+## Our Method 与 Baseline 评测
 
-本 benchmark 计划对比以下五个长视频 mashup/editing baseline。所有 baseline 的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
+本 benchmark 用于评估我们的 CutMaster 方法，并对比以下五个长视频 mashup/editing baseline。所有方法的标准化输出均写入 `runs/<run_id>/`，并遵循 `schemas/run_manifest.schema.json` 与 `schemas/run_output.schema.json`。
 
 复现实验环境总览：
 
-| 环境 | 硬件 / 系统 | Baseline | 说明 |
+| 环境 | 硬件 / 系统 | Method / Baseline | 说明 |
 | --- | --- | --- | --- |
-| Mac mini M4 | macOS 26.5.1，Build 25F80，arm64；Mac mini `Mac16,10`；Apple M4，10 核 CPU（4 个性能核心 + 6 个能效核心）；16 GB 内存 | CutClaw、NarratoAI、OpenMontage | 本地 Mac mini 复现实验环境。OpenMontage 使用 Claude Code 作为 agent，并通过 Anthropic-compatible endpoint 调用 Qwen3.7-Plus。 |
+| Mac mini M4 | macOS 26.5.1，Build 25F80，arm64；Mac mini `Mac16,10`；Apple M4，10 核 CPU（4 个性能核心 + 6 个能效核心）；16 GB 内存 | CutMaster（our method）、CutClaw、NarratoAI、OpenMontage | 本地 Mac mini 复现实验环境。CutMaster 是当前优化中的方法；OpenMontage 使用 Claude Code 作为 agent，并通过 Anthropic-compatible endpoint 调用 Qwen3.7-Plus。 |
 | AutoDL 服务器 | Ubuntu 22.04，NVIDIA GeForce RTX 4090 24GB | VideoAgent、DIRECT-Claw | DIRECT-Claw 与 VideoAgent 使用同一台服务器环境和同一组模型/API 配置；二者各自使用对应 baseline 的 conda/Python 环境。 |
 
 <details>
 <summary><strong>Baseline Adapter 通用配置</strong></summary>
 
-每个 baseline adapter 都应尽量遵循同一组通用参数，方便批量实验、复现和接入统一评测器。不同方法的项目根目录、Python 环境和原始输出可以各自独立，但最终都需要写出 benchmark 标准化的 `runs/<run_id>/` 结构。
+每个 method/baseline adapter 都应尽量遵循同一组通用参数，方便批量实验、复现和接入统一评测器。不同方法的项目根目录、Python 环境和原始输出可以各自独立，但最终都需要写出 benchmark 标准化的 `runs/<run_id>/` 结构。
 
 | 参数模式                | 说明                                                                                                                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -252,7 +252,66 @@ uv run python scripts/export_specified_metrics_table.py \
 | `--overwrite`         | 即使该 task 的`output.mp4` 已存在，也重新生成。默认行为是同名 run 可继续补跑：已成功且有成片的 task 会跳过，失败或不完整 task 会重试。                                  |
 | `--dry-run`           | 只打印将要执行的命令并写入跳过元数据，不调用模型或渲染，适合检查路径和参数。                                                                                             |
 
-方法独有的开关放在各 baseline 小节中说明，例如 CutClaw 的 hook dialogue、ending video、裁剪比例和原视频音量。
+方法独有的开关放在各方法小节中说明，例如 CutMaster 的 reflective policy / experience logger、CutClaw 的 hook dialogue、ending video、裁剪比例和原视频音量。
+
+</details>
+
+
+<details>
+<summary><strong>CutMaster（Our Method）</strong></summary>
+
+CutMaster 是我们当前优化中的剪辑智能体方法，基于原始长视频音乐同步剪辑流水线继续开发，新增 reflective policy、experience logger 和独立 benchmark adapter。当前重点目标是提升 `task_001` 的事件覆盖、时间顺序、成片时长控制和最终 `Quality` 分数。
+
+- 项目路径：`/Users/xinfanchen/Project/CutMaster`
+- 当前状态：our method；已提供独立 benchmark adapter `scripts/run_cutmaster.py`。
+- 关键改动：`sports_event_highlight_v1` reflective policy、render 阶段按源视频时间排序、运行后写出结构化 experience record。
+
+运行 `task_001`（当前优化目标）：
+
+```bash
+python3 scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --task-id task_001 \
+  --run-id cutmaster_reflective_mvp \
+  --method-version reflective_mvp0 \
+  --overwrite \
+  --no-ending
+```
+
+批量运行全部任务：
+
+```bash
+python3 scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --all \
+  --run-id cutmaster_reflective_mvp
+```
+
+CutMaster 特有参数和建议：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--cutmaster-root` | CutMaster 项目根目录。 |
+| `--cutmaster-python` | CutMaster 使用的 Python 解释器，推荐显式指向 `.venv/bin/python`。 |
+| `--method-version` | CutMaster 实验版本，例如 `reflective_mvp0`。 |
+| `--no-ending` | 不追加 ending video。对 `task_001` 推荐开启，避免成片超过 60 秒目标。 |
+| `--no-hook-dialogue` | 不渲染 hook dialogue。当前 CutMaster reflective policy 会对体育事件类任务自动禁用不合适的晚段 hook。 |
+| `--overwrite` | 重新生成已有 task 输出。调试 `task_001` 时建议使用。 |
+
+CutMaster 的原始中间结果保存在 CutMaster 项目的 `Output/` 中；benchmark 只保存标准化的 `runs/<run_id>/`。如果 experience logger 启用，还会在 CutMaster 侧写出：
+
+```text
+Output/Memory/experiences/<task_id>.json
+```
+
+运行完成后可用以下命令校验并评测：
+
+```bash
+python3 scripts/validate_run.py runs/cutmaster_reflective_mvp
+uv run python -m eval.run_evaluation --run runs/cutmaster_reflective_mvp --config eval/config.yaml
+```
 
 </details>
 
@@ -582,6 +641,14 @@ uv run python scripts/validate_run.py runs/<run_id>
 
 <details>
 <summary><strong>Baseline Adapter 脚本</strong></summary>
+
+#### `scripts/run_cutmaster.py`
+
+调用 CutMaster（our method），生成标准化 `runs/<run_id>/` 输出。
+
+```bash
+uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_reflective_mvp --method-version reflective_mvp0
+```
 
 #### `scripts/run_cutclaw.py`
 

@@ -223,15 +223,15 @@ uv run python scripts/export_specified_metrics_table.py \
 
 Efficiency is reported separately as API cost and end-to-end latency. See `eval/README.md` for the runnable evaluator.
 
-## Baseline Evaluation
+## Our Method and Baseline Evaluation
 
-This benchmark is designed to compare the following five long-video mashup/editing baselines. All baselines should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
+This benchmark evaluates our CutMaster method and compares it against five long-video mashup/editing baselines. All methods should write standardized outputs to `runs/<run_id>/` following `schemas/run_manifest.schema.json` and `schemas/run_output.schema.json`.
 
 Reproduction environment overview:
 
-| Environment | Hardware / OS | Baselines | Notes |
+| Environment | Hardware / OS | Method / Baselines | Notes |
 | --- | --- | --- | --- |
-| Mac mini M4 | macOS 26.5.1, Build 25F80, arm64; Mac mini `Mac16,10`; Apple M4, 10-core CPU (4 performance + 6 efficiency cores); 16 GB memory | CutClaw, NarratoAI, OpenMontage | Local Mac mini reproduction environment. OpenMontage uses Claude Code as the agent and calls Qwen3.7-Plus through an Anthropic-compatible endpoint. |
+| Mac mini M4 | macOS 26.5.1, Build 25F80, arm64; Mac mini `Mac16,10`; Apple M4, 10-core CPU (4 performance + 6 efficiency cores); 16 GB memory | CutMaster (our method), CutClaw, NarratoAI, OpenMontage | Local Mac mini reproduction environment. CutMaster is the method currently being optimized; OpenMontage uses Claude Code as the agent and calls Qwen3.7-Plus through an Anthropic-compatible endpoint. |
 | AutoDL server | Ubuntu 22.04, NVIDIA GeForce RTX 4090 24GB | VideoAgent, DIRECT-Claw | DIRECT-Claw and VideoAgent use the same server environment and model/API configuration; each baseline still uses its own conda/Python environment. |
 
 <details>
@@ -252,7 +252,66 @@ Each baseline adapter should follow the same shared argument conventions whereve
 | `--overwrite` | Regenerate a task even if its `output.mp4` already exists. By default, the same run can be resumed: successful tasks with an output video are skipped, while failed or incomplete tasks are retried. |
 | `--dry-run` | Print the commands and write skipped metadata without calling models or rendering, useful for checking paths and arguments. |
 
-Method-specific options are documented in each baseline section, such as CutClaw's hook dialogue, ending video, crop ratio, and source-video audio volume.
+Method-specific options are documented in each method section, such as CutMaster's reflective policy / experience logger and CutClaw's hook dialogue, ending video, crop ratio, and source-video audio volume.
+
+</details>
+
+
+<details>
+<summary><strong>CutMaster (Our Method)</strong></summary>
+
+CutMaster is our current editing-agent method. It continues from the long-video music-synchronized editing pipeline and adds reflective policy, an experience logger, and an independent benchmark adapter. The current optimization target is improving `task_001` through better event coverage, source chronology, duration control, and final `Quality`.
+
+- Project root: `/Users/xinfanchen/Project/CutMaster`
+- Status: our method; independent benchmark adapter available as `scripts/run_cutmaster.py`.
+- Key changes: `sports_event_highlight_v1` reflective policy, render-time source timestamp sorting, and structured experience records after each run.
+
+Run `task_001` (current optimization target):
+
+```bash
+python3 scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --task-id task_001 \
+  --run-id cutmaster_reflective_mvp \
+  --method-version reflective_mvp0 \
+  --overwrite \
+  --no-ending
+```
+
+Run all tasks in batch:
+
+```bash
+python3 scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --all \
+  --run-id cutmaster_reflective_mvp
+```
+
+CutMaster-specific arguments and recommendations:
+
+| Argument | Description |
+| --- | --- |
+| `--cutmaster-root` | CutMaster project root. |
+| `--cutmaster-python` | Python executable used by CutMaster; explicitly pointing to `.venv/bin/python` is recommended. |
+| `--method-version` | CutMaster experiment label, such as `reflective_mvp0`. |
+| `--no-ending` | Do not append the ending video. Recommended for `task_001` to avoid exceeding the 60-second target. |
+| `--no-hook-dialogue` | Do not render hook dialogue. CutMaster's reflective policy automatically disables unsuitable late-game hooks for sports event tasks. |
+| `--overwrite` | Regenerate existing task outputs. Recommended while iterating on `task_001`. |
+
+CutMaster raw intermediate outputs remain in the CutMaster project's `Output/` directory; the benchmark stores only the standardized `runs/<run_id>/` structure. When the experience logger is enabled, CutMaster also writes:
+
+```text
+Output/Memory/experiences/<task_id>.json
+```
+
+After generation, validate and evaluate with:
+
+```bash
+python3 scripts/validate_run.py runs/cutmaster_reflective_mvp
+uv run python -m eval.run_evaluation --run runs/cutmaster_reflective_mvp --config eval/config.yaml
+```
 
 </details>
 
@@ -556,6 +615,14 @@ uv run python scripts/validate_run.py runs/<run_id>
 
 <details>
 <summary><strong>Baseline Adapter Scripts</strong></summary>
+
+#### `scripts/run_cutmaster.py`
+
+Run CutMaster (our method) and export standardized `runs/<run_id>/` outputs.
+
+```bash
+uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_reflective_mvp --method-version reflective_mvp0
+```
 
 #### `scripts/run_cutclaw.py`
 
