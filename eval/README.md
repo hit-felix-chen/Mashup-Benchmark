@@ -7,7 +7,7 @@ This package evaluates submitted runs under `runs/<run_id>/`.
 Cross-modal alignment:
 
 - `IF`: instruction following, scored by VLM-as-judge.
-- `BCS`: beat-cut synchronization, computed from full-frame scene-change detection on the final rendered video and audio beat peaks.
+- `BCS`: beat-cut synchronization, computed from PySceneDetect adaptive full-frame cut detection on the final rendered video and audio beat peaks.
 - `AEC`: audio-visual energy correspondence, computed from visual motion and audio RMS correlation.
 
 Single-modal quality:
@@ -68,6 +68,17 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 ```
 
 By default, tasks are evaluated with `--concurrency 10`. Use `--concurrency <N>` to adjust parallelism. Output JSONL rows are still written in the original task order.
+
+Partially reevaluate selected tasks and metrics while reusing all other results:
+
+```bash
+uv run python -m eval.run_evaluation \
+  --run runs/cutclaw_benchmark \
+  --config eval/config.yaml \
+  --reuse-eval-id <existing_eval_id> \
+  --task-id task_022 \
+  --metrics BCS
+```
 
 Smoke-test automatic metrics only:
 

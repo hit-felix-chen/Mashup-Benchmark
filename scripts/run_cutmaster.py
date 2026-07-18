@@ -2,21 +2,18 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
-import re
 import shlex
 import shutil
 import subprocess
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CUTMASTER_ROOT = BENCHMARK_ROOT.parent / "CutMaster"
@@ -25,112 +22,46 @@ TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat()
+    return datetime.now(UTC).astimezone().isoformat()
 
 
-def load_tasks(task_file: Path) -> list[dict[str, Any]]:
-    tasks: list[dict[str, Any]] = []
-    with task_file.open("r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                tasks.append(json.loads(line))
-    return tasks
+def load_tasks(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
-def task_lookup(tasks: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {task["id"]: task for task in tasks}
+def resolve_python(project_root: Path, explicit: Path | None) -> Path:
+    if explicit:
+        return explicit.expanduser().absolute()
+    candidate = project_root / ".venv" / "bin" / "python"
+    return candidate if candidate.exists() else Path(sys.executable).absolute()
 
 
-def resolve_cutmaster_python(cutmaster_root: Path, explicit_python: Path | None = None) -> Path:
-    if explicit_python is not None:
-        explicit_python = explicit_python.expanduser()
-        return explicit_python if explicit_python.is_absolute() else explicit_python.absolute()
-    venv_python = cutmaster_root / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        # Keep the venv entrypoint path instead of resolving its symlink target.
-        # uv-created venvs often point bin/python at the managed base interpreter;
-        # executing the resolved target bypasses pyvenv.cfg and loses site-packages.
-        return venv_python
-    return Path(sys.executable).absolute()
-
-
-def cutmaster_media_id(path: Path) -> str:
-    return path.stem.replace(".", "_").replace(" ", "_")
-
-
-def cutmaster_instruction_id(instruction: str) -> str:
-    instruction_hash = hashlib.md5(instruction.encode("utf-8")).hexdigest()[:8]
-    instruction_safe = re.sub(r"[^\w\s-]", "", instruction)[:50].strip().replace(" ", "_")
-    if instruction_safe:
-        return f"{instruction_safe}_{instruction_hash}"
-    return f"instruction_{instruction_hash}"
-
-
-def derive_cutmaster_outputs(cutmaster_root: Path, video_path: Path, audio_path: Path, instruction: str) -> tuple[Path, Path]:
-    video_id = cutmaster_media_id(video_path)
-    audio_id = cutmaster_media_id(audio_path)
-    instruction_id = cutmaster_instruction_id(instruction)
-    out_dir = cutmaster_root / "Output" / "Output" / f"{video_id}_{audio_id}"
-    return (
-        out_dir / f"shot_plan_{instruction_id}.json",
-        out_dir / f"shot_point_{instruction_id}.json",
-    )
-
-
-def shot_duration_bounds(shot_length: float) -> tuple[float, float]:
-    min_target = 0.2
-    floor = 1.0
-    range_cap = 1.0
-    shot_length = max(min_target, float(shot_length))
-    radius = min(range_cap, max(floor, shot_length))
-    return round(max(floor, shot_length - radius), 3), round(shot_length + radius, 3)
-
-
-def repo_info(cutmaster_root: Path) -> dict[str, Any]:
-    def git(args: list[str]) -> str | None:
+def repo_info(project_root: Path) -> dict[str, Any]:
+    def git(*args: str) -> str | None:
         try:
-            return subprocess.check_output(["git", *args], cwd=cutmaster_root, text=True).strip()
+            return subprocess.check_output(["git", *args], cwd=project_root, text=True).strip()
         except Exception:
             return None
 
-    status = git(["status", "--short"])
     return {
         "repo": "CutMaster",
-        "branch": git(["branch", "--show-current"]),
-        "commit": git(["rev-parse", "HEAD"]),
-        "dirty": bool(status),
+        "branch": git("branch", "--show-current"),
+        "commit": git("rev-parse", "HEAD"),
+        "dirty": bool(git("status", "--short")),
     }
 
 
-def ffprobe_duration(path: Path) -> float | None:
-    try:
-        out = subprocess.check_output(
-            [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
-            ],
-            text=True,
-        ).strip()
-        return float(out)
-    except Exception:
-        return None
-
-
-def stream_command(cmd: list[str], log_path: Path, *, cwd: Path, dry_run: bool = False) -> int:
+def stream_command(command: list[str], log_path: Path, cwd: Path) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    display = shlex.join(cmd)
+    display = shlex.join(command)
     print(f"$ {display}")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     with log_path.open("w", encoding="utf-8") as log:
         log.write(f"$ {display}\n\n")
-        log.flush()
-        if dry_run:
-            log.write("[dry-run] command not executed\n")
-            return 0
-
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        proc = subprocess.Popen(
-            cmd,
+        process = subprocess.Popen(
+            command,
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
@@ -138,297 +69,170 @@ def stream_command(cmd: list[str], log_path: Path, *, cwd: Path, dry_run: bool =
             text=True,
             bufsize=1,
         )
-        assert proc.stdout is not None
-        for line in proc.stdout:
+        assert process.stdout is not None
+        for line in process.stdout:
             print(line, end="")
             log.write(line)
-        return proc.wait()
+        return process.wait()
 
 
-def copy_if_exists(src: Path, dst: Path) -> bool:
-    if not src.exists():
-        return False
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
-    return True
+def ffprobe_duration(path: Path) -> float:
+    output = subprocess.check_output(
+        [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+        ],
+        text=True,
+    ).strip()
+    return float(output)
 
 
-def rel_to_benchmark(path: Path, benchmark_root: Path) -> str:
-    return path.resolve().relative_to(benchmark_root.resolve()).as_posix()
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
+def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def load_existing_records(run_dir: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for path in sorted((run_dir / "task_outputs").glob("task_*/run_output.json")):
-        try:
-            records.append(json.loads(path.read_text(encoding="utf-8")))
-        except Exception:
-            continue
-    return records
+def relative(path: Path, root: Path) -> str:
+    return path.resolve().relative_to(root.resolve()).as_posix()
 
 
-def load_existing_record(task_dir: Path) -> dict[str, Any] | None:
-    path = task_dir / "run_output.json"
+def copy_artifact(source: Path, destination: Path) -> str | None:
+    if not source.exists():
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return str(destination)
+
+
+def load_record(task_dir: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads((task_dir / "run_output.json").read_text(encoding="utf-8"))
     except Exception:
         return None
 
 
+def collect_records(run_dir: Path) -> list[dict[str, Any]]:
+    records = []
+    for path in sorted((run_dir / "task_outputs").glob("task_*/run_output.json")):
+        try:
+            records.append(json.loads(path.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return records
+
+
 def write_run_index(
-    *,
     run_dir: Path,
-    results_root: Path,
+    benchmark_root: Path,
     run_id: str,
     method: str,
     method_version: str,
-    benchmark_root: Path,
-    cutmaster_root: Path,
-    cutmaster_python: Path,
     started_at: str,
+    project_root: Path,
+    python: Path,
     adapter: dict[str, Any],
-    notes: str | None,
 ) -> None:
-    records = load_existing_records(run_dir)
-    run_outputs_path = run_dir / "run_outputs.jsonl"
-    with run_outputs_path.open("w", encoding="utf-8") as f:
+    records = collect_records(run_dir)
+    outputs_path = run_dir / "run_outputs.jsonl"
+    with outputs_path.open("w", encoding="utf-8") as handle:
         for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    num_success = sum(1 for r in records if r.get("status") == "success")
-    num_failed = sum(1 for r in records if r.get("status") == "failed")
-    if not records:
-        status = "running"
-    elif num_failed == 0 and num_success == len(records):
-        status = "success"
-    elif num_success == 0 and num_failed == len(records):
-        status = "failed"
-    else:
-        status = "partial"
-
-    manifest = {
-        "run_id": run_id,
-        "method": method,
-        "method_version": method_version,
-        "benchmark": "Mashup-Benchmark",
-        "task_file": TASK_FILE_REL.as_posix(),
-        "created_at": started_at,
-        "started_at": started_at,
-        "ended_at": now_iso(),
-        "status": status,
-        "num_tasks": len(records),
-        "num_success": num_success,
-        "num_failed": num_failed,
-        "run_outputs": rel_to_benchmark(run_outputs_path, benchmark_root),
-        "code": repo_info(cutmaster_root),
-        "environment": {
-            "platform": platform.platform(),
-            "python": sys.version.split()[0],
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    successes = sum(record.get("status") == "success" for record in records)
+    failures = sum(record.get("status") == "failed" for record in records)
+    status = "success" if records and failures == 0 else "failed" if records and successes == 0 else "partial"
+    write_json(
+        run_dir / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "method": method,
+            "method_version": method_version,
+            "benchmark": "Mashup-Benchmark",
+            "task_file": TASK_FILE_REL.as_posix(),
+            "created_at": started_at,
+            "started_at": started_at,
+            "ended_at": now_iso(),
+            "status": status,
+            "num_tasks": len(records),
+            "num_success": successes,
+            "num_failed": failures,
+            "run_outputs": relative(outputs_path, benchmark_root),
+            "code": repo_info(project_root),
+            "environment": {"platform": platform.platform(), "python": str(python)},
+            "adapter": adapter,
+            "aggregate": {
+                "total_wall_clock_sec": sum(float(row.get("wall_clock_sec") or 0) for row in records),
+                "total_api_cost_usd": sum(float(row.get("api_cost_usd") or 0) for row in records),
+            },
         },
-        "adapter": adapter,
-        "config": {
-            "baseline": "CutMaster",
-        },
-        "aggregate": {
-            "total_wall_clock_sec": sum(float(r.get("wall_clock_sec") or 0.0) for r in records),
-            "total_api_cost_usd": sum(float(r.get("api_cost_usd") or 0.0) for r in records),
-        },
-    }
-    if notes:
-        manifest["notes"] = notes
-    write_json(run_dir / "run_manifest.json", manifest)
+    )
 
 
-def task_paths(task: dict[str, Any], benchmark_root: Path) -> tuple[Path, Path]:
-    video_path = benchmark_root / task["video"]["local_path"]
-    audio_path = benchmark_root / task["audio"]["local_path"]
-    return video_path, audio_path
-
-
-def run_one_task(
-    *,
+def run_task(
     task: dict[str, Any],
+    *,
     benchmark_root: Path,
-    cutmaster_root: Path,
-    cutmaster_python: Path,
-    results_root: Path,
+    project_root: Path,
+    python: Path,
+    config: Path,
+    run_dir: Path,
     run_id: str,
     method: str,
     method_version: str,
-    cutmaster_video_type: str,
     overwrite: bool,
-    dry_run: bool,
-    include_hook_dialogue: bool,
-    include_ending: bool,
-    crop_ratio: str | None,
-    original_audio_volume: float,
+    subtitle: Path | None,
 ) -> dict[str, Any]:
     task_id = task["id"]
-    run_dir = results_root / run_id
     task_dir = run_dir / "task_outputs" / task_id
     logs_dir = task_dir / "logs"
     artifacts_dir = task_dir / "artifacts"
+    work_dir = artifacts_dir / "cutmaster"
     output_video = task_dir / "output.mp4"
-    existing_record = load_existing_record(task_dir)
+    existing = load_record(task_dir)
+    if output_video.exists() and not overwrite and (existing or {}).get("status") == "success":
+        print(f"[{task_id}] reusing successful output: {output_video}")
+        return existing
 
-    video_path, audio_path = task_paths(task, benchmark_root)
-    instruction = task["task"]["prompt"]
-    target_output = float(task["task"]["target_output_length_sec"])
-    target_shot = float(task["task"]["target_shot_length_sec"])
-    prompt_type = task["task"]["type"]
-
-    started_at = now_iso()
-    t0 = time.time()
-    error: dict[str, Any] | None = None
-    status = "skipped" if dry_run else "success"
+    video = benchmark_root / task["video"]["local_path"]
+    audio = benchmark_root / task["audio"]["local_path"]
+    if not video.is_file() or not audio.is_file():
+        raise FileNotFoundError(f"Missing benchmark media: video={video.is_file()}, audio={audio.is_file()}")
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     write_json(artifacts_dir / "benchmark_task.json", task)
+    started_at = now_iso()
+    started = time.monotonic()
+    command = [
+        str(python), "-m", "cutmaster", "run",
+        "--video", str(video),
+        "--audio", str(audio),
+        "--prompt", task["task"]["prompt"],
+        "--output-dir", str(work_dir),
+        "--config", str(config),
+        "--target-duration", str(task["task"]["target_output_length_sec"]),
+        "--target-shot-length", str(task["task"]["target_shot_length_sec"]),
+        "--prompt-type", task["task"]["type"],
+        "--video-title", task["video"].get("title_zh") or task["video"].get("title_en") or "",
+    ]
+    if subtitle:
+        command += ["--subtitle", str(subtitle)]
+    if overwrite:
+        command.append("--overwrite")
 
-    shot_plan_path, shot_point_path = derive_cutmaster_outputs(cutmaster_root, video_path, audio_path, instruction)
-    can_reuse_success = (
-        output_video.exists()
-        and not overwrite
-        and (existing_record is None or existing_record.get("status") == "success")
-        and not (existing_record or {}).get("error")
-    )
-    if can_reuse_success:
-        print(f"[{task_id}] success output exists, reusing: {output_video}")
-    else:
-        if existing_record and existing_record.get("status") != "success" and not overwrite:
-            print(f"[{task_id}] existing record is {existing_record.get('status')}, retrying in same run")
-        if not video_path.exists():
-            raise FileNotFoundError(f"Benchmark video not found: {video_path}")
-        if not audio_path.exists():
-            raise FileNotFoundError(f"Benchmark audio not found: {audio_path}")
-
-        min_duration = max(5.0, target_output - 5.0)
-        max_duration = target_output + 5.0
-        min_seg_duration, max_seg_duration = shot_duration_bounds(target_shot)
-        instruction_type = "narrative" if prompt_type == "narrative" else "object"
-
-        pipeline_cmd = [
-            str(cutmaster_python), "local_run.py",
-            "--Video_Path", str(video_path),
-            "--Audio_Path", str(audio_path),
-            "--Instruction", instruction,
-            "--type", cutmaster_video_type,
-            "--instruction_type", instruction_type,
-            "--config.AUDIO_SEGMENT_MIN_DURATION_SEC", str(min_duration),
-            "--config.AUDIO_SEGMENT_MAX_DURATION_SEC", str(max_duration),
-            "--config.AUDIO_MIN_SEGMENT_DURATION", str(min_seg_duration),
-            "--config.AUDIO_MAX_SEGMENT_DURATION", str(max_seg_duration),
-            "--config.HOOK_DIALOGUE_TARGET_RATIO", "0.2",
-            "--config.HOOK_DIALOGUE_MAX_DURATION_SEC", "10.0",
-        ]
-        rc = stream_command(pipeline_cmd, logs_dir / "pipeline.log", cwd=cutmaster_root, dry_run=dry_run)
-        if rc != 0:
-            raise RuntimeError(f"local_run.py failed with exit code {rc}")
-
-        if not dry_run and not shot_plan_path.exists():
-            raise FileNotFoundError(f"Shot plan was not produced: {shot_plan_path}")
-        if not dry_run and not shot_point_path.exists():
-            raise FileNotFoundError(f"Shot point was not produced: {shot_point_path}")
-
-        render_cmd = [
-            str(cutmaster_python), "render/render_video.py",
-            "--shot-plan", str(shot_plan_path),
-            "--shot-json", str(shot_point_path),
-            "--video", str(video_path),
-            "--audio", str(audio_path),
-            "--output", str(output_video),
-            "--no-labels",
-            "--original-audio-volume", str(original_audio_volume),
-        ]
-        if include_hook_dialogue:
-            render_cmd.append("--render-hook-dialogue")
-        if crop_ratio:
-            render_cmd += ["--crop-ratio", crop_ratio]
-        if include_ending:
-            ending = cutmaster_root / "resource" / "ending" / "ending.mp4"
-            if ending.exists():
-                render_cmd += ["--ending-video", str(ending)]
-        else:
-            render_cmd += ["--ending-video", ""]
-        font = cutmaster_root / "resource" / "font" / "Pulp Fiction Italic M54.ttf"
-        if font.exists():
-            render_cmd += ["--dialogue-font", str(font)]
-
-        rc = stream_command(render_cmd, logs_dir / "render.log", cwd=cutmaster_root, dry_run=dry_run)
-        if rc != 0:
-            raise RuntimeError(f"render_video.py failed with exit code {rc}")
-
-    copy_if_exists(shot_plan_path, artifacts_dir / "shot_plan.json")
-    copy_if_exists(shot_point_path, artifacts_dir / "shot_point.json")
-    actual_duration = ffprobe_duration(output_video) if output_video.exists() else 0.0
-    if not output_video.exists() and not dry_run:
-        raise FileNotFoundError(f"Rendered output not found: {output_video}")
-
-    ended_at = now_iso()
-    wall_clock = time.time() - t0
-    record = {
-        "run_id": run_id,
-        "method": method,
-        "method_version": method_version,
-        "task_id": task_id,
-        "video_id": task["video"]["id"],
-        "audio_id": task["audio"]["id"],
-        "prompt_type": prompt_type,
-        "status": status,
-        "output_video": rel_to_benchmark(output_video, benchmark_root),
-        "target_output_length_sec": target_output,
-        "target_shot_length_sec": target_shot,
-        "actual_output_length_sec": float(actual_duration or 0.0),
-        "wall_clock_sec": wall_clock,
-        "api_cost_usd": 0.0,
-        "created_at": ended_at,
-        "started_at": started_at,
-        "ended_at": ended_at,
-        "code_commit": repo_info(cutmaster_root).get("commit"),
-        "config": {
-            "video_path": str(video_path),
-            "audio_path": str(audio_path),
-            "cutmaster_python": str(cutmaster_python),
-            "cutmaster_video_type": cutmaster_video_type,
-            "instruction_type": "narrative" if prompt_type == "narrative" else "object",
-            "render_hook_dialogue": include_hook_dialogue,
-            "include_ending": include_ending,
-            "crop_ratio": crop_ratio,
-            "original_audio_volume": original_audio_volume,
-        },
-        "artifacts": {
-            "shot_plan": rel_to_benchmark(artifacts_dir / "shot_plan.json", benchmark_root),
-            "shot_point": rel_to_benchmark(artifacts_dir / "shot_point.json", benchmark_root),
-            "benchmark_task": rel_to_benchmark(artifacts_dir / "benchmark_task.json", benchmark_root),
-            "backend_log": rel_to_benchmark(logs_dir / "pipeline.log", benchmark_root),
-            "run_log": rel_to_benchmark(logs_dir / "render.log", benchmark_root),
-        },
-        "error": error,
+    return_code = stream_command(command, logs_dir / "backend.log", project_root)
+    if return_code:
+        raise RuntimeError(f"CutMaster exited with code {return_code}")
+    result = json.loads((work_dir / "result.json").read_text(encoding="utf-8"))
+    shutil.copy2(work_dir / "output.mp4", output_video)
+    artifact_map = {
+        "benchmark_task": relative(artifacts_dir / "benchmark_task.json", benchmark_root),
+        "script_raw": relative(work_dir / "script_raw.json", benchmark_root),
+        "script_adapted": relative(work_dir / "script_adapted.json", benchmark_root),
+        "dialogues_json": relative(work_dir / "dialogues.json", benchmark_root),
+        "processed_subtitle": relative(work_dir / "dialogue_merged.srt", benchmark_root),
+        "cutmaster_result": relative(work_dir / "result.json", benchmark_root),
+        "backend_log": relative(logs_dir / "backend.log", benchmark_root),
+        "cutmaster_log": relative(work_dir / "cutmaster.log", benchmark_root),
     }
-    write_json(task_dir / "run_output.json", record)
-    return record
-
-
-def write_failed_record(
-    *,
-    task: dict[str, Any],
-    benchmark_root: Path,
-    results_root: Path,
-    run_id: str,
-    method: str,
-    method_version: str,
-    started_at: str,
-    exc: BaseException,
-) -> dict[str, Any]:
-    task_id = task["id"]
-    run_dir = results_root / run_id
-    task_dir = run_dir / "task_outputs" / task_id
-    output_video = task_dir / "output.mp4"
     ended_at = now_iso()
     record = {
         "run_id": run_id,
@@ -438,171 +242,157 @@ def write_failed_record(
         "video_id": task["video"]["id"],
         "audio_id": task["audio"]["id"],
         "prompt_type": task["task"]["type"],
-        "status": "failed",
-        "output_video": rel_to_benchmark(output_video, benchmark_root),
+        "status": "success",
+        "output_video": relative(output_video, benchmark_root),
         "target_output_length_sec": float(task["task"]["target_output_length_sec"]),
         "target_shot_length_sec": float(task["task"]["target_shot_length_sec"]),
-        "actual_output_length_sec": 0.0,
-        "wall_clock_sec": 0.0,
+        "actual_output_length_sec": ffprobe_duration(output_video),
+        "wall_clock_sec": time.monotonic() - started,
         "api_cost_usd": 0.0,
         "created_at": ended_at,
         "started_at": started_at,
         "ended_at": ended_at,
-        "config": {},
-        "artifacts": {},
-        "error": {
-            "type": type(exc).__name__,
-            "message": str(exc),
-            "traceback": traceback.format_exc(),
+        "code_commit": repo_info(project_root)["commit"],
+        "config": {
+            "cutmaster_config": str(config),
+            "subtitle_source": str(subtitle) if subtitle else "dashscope_fun_asr",
+            "stage_timings_sec": result.get("stage_timings_sec", {}),
+            "num_raw_clips": result.get("num_raw_clips"),
+            "num_adapted_clips": result.get("num_adapted_clips"),
         },
+        "artifacts": artifact_map,
+        "error": None,
     }
     write_json(task_dir / "run_output.json", record)
     return record
 
 
+def write_failure(
+    task: dict[str, Any], benchmark_root: Path, run_dir: Path, run_id: str,
+    method: str, method_version: str, started_at: str, exc: BaseException,
+) -> None:
+    task_dir = run_dir / "task_outputs" / task["id"]
+    output = task_dir / "output.mp4"
+    ended_at = now_iso()
+    write_json(
+        task_dir / "run_output.json",
+        {
+            "run_id": run_id,
+            "method": method,
+            "method_version": method_version,
+            "task_id": task["id"],
+            "video_id": task["video"]["id"],
+            "audio_id": task["audio"]["id"],
+            "prompt_type": task["task"]["type"],
+            "status": "failed",
+            "output_video": relative(output, benchmark_root),
+            "target_output_length_sec": float(task["task"]["target_output_length_sec"]),
+            "target_shot_length_sec": float(task["task"]["target_shot_length_sec"]),
+            "actual_output_length_sec": 0.0,
+            "wall_clock_sec": 0.0,
+            "api_cost_usd": 0.0,
+            "created_at": ended_at,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "error": {"type": type(exc).__name__, "message": str(exc), "traceback": traceback.format_exc()},
+        },
+    )
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run CutMaster on Mashup-Benchmark tasks.")
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument("--task-id", nargs="+", help="Task id(s), e.g. task_006.")
-    group.add_argument("--all", action="store_true", help="Run all benchmark tasks.")
-    parser.add_argument("--list-tasks", action="store_true", help="List available task ids and exit.")
+    parser = argparse.ArgumentParser(description="Run the backend-only CutMaster pipeline on benchmark tasks.")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--task-id", nargs="+")
+    selection.add_argument("--all", action="store_true")
+    parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--benchmark-root", type=Path, default=BENCHMARK_ROOT)
     parser.add_argument("--cutmaster-root", type=Path, default=DEFAULT_CUTMASTER_ROOT)
-    parser.add_argument(
-        "--cutmaster-python",
-        type=Path,
-        default=None,
-        help="Python executable for CutMaster. Defaults to <cutmaster-root>/.venv/bin/python when present.",
-    )
+    parser.add_argument("--cutmaster-python", type=Path)
+    parser.add_argument("--cutmaster-config", type=Path)
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--run-id", default="cutmaster_benchmark")
     parser.add_argument("--method", default="CutMaster")
-    parser.add_argument("--method-version", default="CutMaster")
-    parser.add_argument("--video-type", choices=["film", "vlog"], default="film")
-    parser.add_argument("--overwrite", action="store_true", help="Regenerate even if task output.mp4 already exists.")
-    parser.add_argument("--dry-run", action="store_true", help="Print commands and write metadata without executing heavy steps.")
-    parser.add_argument("--no-hook-dialogue", action="store_true", help="Do not render hook dialogue intro.")
-    parser.add_argument("--no-ending", action="store_true", help="Do not append resource/ending/ending.mp4.")
-    parser.add_argument("--crop-ratio", default=None, help='Optional render crop ratio, e.g. "16:9" or "9:16".')
-    parser.add_argument("--original-audio-volume", type=float, default=0.0)
-    parser.add_argument("--notes", default=None)
+    parser.add_argument("--method-version", default="backend-mvp")
+    parser.add_argument("--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR.")
+    parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     benchmark_root = args.benchmark_root.resolve()
-    cutmaster_root = args.cutmaster_root.resolve()
-    cutmaster_python = resolve_cutmaster_python(cutmaster_root, args.cutmaster_python)
+    project_root = args.cutmaster_root.resolve()
+    python = resolve_python(project_root, args.cutmaster_python)
+    config = (args.cutmaster_config or project_root / "config.toml").resolve()
     results_root = args.results_root.resolve()
-    if not cutmaster_root.exists():
-        raise SystemExit(f"CutMaster root does not exist: {cutmaster_root}")
-    if not cutmaster_python.exists():
-        raise SystemExit(f"CutMaster Python executable does not exist: {cutmaster_python}")
+    if not project_root.is_dir() or not python.exists() or not config.is_file():
+        raise SystemExit(f"Invalid CutMaster setup: root={project_root}, python={python}, config={config}")
     try:
         results_root.relative_to(benchmark_root)
     except ValueError as exc:
-        raise SystemExit("--results-root must be inside --benchmark-root so run paths remain benchmark-relative.") from exc
-    task_file = benchmark_root / TASK_FILE_REL
-    tasks = load_tasks(task_file)
-    by_id = task_lookup(tasks)
+        raise SystemExit("--results-root must be inside the benchmark repository") from exc
 
+    tasks = load_tasks(benchmark_root / TASK_FILE_REL)
+    lookup = {task["id"]: task for task in tasks}
     if args.list_tasks:
         for task in tasks:
-            print(
-                f"{task['id']}\t{task['video']['id']}\t{task['audio']['id']}\t"
-                f"{task['task']['type']}\t{task['task']['prompt']}"
-            )
+            print(f"{task['id']}\t{task['task']['type']}\t{task['task']['prompt']}")
         return 0
-
     if args.all:
         selected = tasks
     elif args.task_id:
-        missing = [task_id for task_id in args.task_id if task_id not in by_id]
+        missing = [task_id for task_id in args.task_id if task_id not in lookup]
         if missing:
-            raise SystemExit(f"Unknown task id(s): {', '.join(missing)}")
-        selected = [by_id[task_id] for task_id in args.task_id]
+            raise SystemExit(f"Unknown task ids: {', '.join(missing)}")
+        selected = [lookup[task_id] for task_id in args.task_id]
     else:
-        raise SystemExit("Use --task-id task_001, --all, or --list-tasks.")
+        raise SystemExit("Use --task-id, --all, or --list-tasks")
+    if args.subtitle_path and len(selected) != 1:
+        raise SystemExit("--subtitle-path can only be used with one selected task")
+    subtitle = args.subtitle_path.resolve() if args.subtitle_path else None
+    if subtitle and not subtitle.is_file():
+        raise SystemExit(f"Subtitle not found: {subtitle}")
 
     run_dir = results_root / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     started_at = now_iso()
-    adapter_metadata = {
+    adapter = {
         "name": "run_cutmaster",
         "script": "scripts/run_cutmaster.py",
-        "project_root": str(cutmaster_root),
-        "python": str(cutmaster_python),
-        "benchmark_root": str(benchmark_root),
-        "results_root": rel_to_benchmark(results_root, benchmark_root),
-        "raw_output_root": str(cutmaster_root / "Output"),
-        "task_selection": {
-            "mode": "all" if args.all else "task_ids",
-            "task_ids": [task["id"] for task in selected],
-        },
-        "options": {
-            "overwrite": bool(args.overwrite),
-            "dry_run": bool(args.dry_run),
-            "video_type": args.video_type,
-            "render_hook_dialogue": not args.no_hook_dialogue,
-            "include_ending": not args.no_ending,
-            "crop_ratio": args.crop_ratio,
-            "original_audio_volume": args.original_audio_volume,
-        },
+        "project_root": str(project_root),
+        "python": str(python),
+        "config": str(config),
+        "task_ids": [task["id"] for task in selected],
+        "overwrite": args.overwrite,
     }
-
     failures = 0
-    for index, task in enumerate(selected, 1):
+    for index, task in enumerate(selected, start=1):
         print(f"\n[{index}/{len(selected)}] Running {task['id']}")
-        task_started_at = now_iso()
+        task_started = now_iso()
         try:
-            run_one_task(
-                task=task,
+            run_task(
+                task,
                 benchmark_root=benchmark_root,
-                cutmaster_root=cutmaster_root,
-                cutmaster_python=cutmaster_python,
-                results_root=results_root,
+                project_root=project_root,
+                python=python,
+                config=config,
+                run_dir=run_dir,
                 run_id=args.run_id,
                 method=args.method,
                 method_version=args.method_version,
-                cutmaster_video_type=args.video_type,
                 overwrite=args.overwrite,
-                dry_run=args.dry_run,
-                include_hook_dialogue=not args.no_hook_dialogue,
-                include_ending=not args.no_ending,
-                crop_ratio=args.crop_ratio,
-                original_audio_volume=args.original_audio_volume,
+                subtitle=subtitle,
             )
         except Exception as exc:
             failures += 1
             print(f"[{task['id']}] FAILED: {exc}")
-            write_failed_record(
-                task=task,
-                benchmark_root=benchmark_root,
-                results_root=results_root,
-                run_id=args.run_id,
-                method=args.method,
-                method_version=args.method_version,
-                started_at=task_started_at,
-                exc=exc,
-            )
+            write_failure(task, benchmark_root, run_dir, args.run_id, args.method, args.method_version, task_started, exc)
         finally:
             write_run_index(
-                run_dir=run_dir,
-                results_root=results_root,
-                run_id=args.run_id,
-                method=args.method,
-                method_version=args.method_version,
-                cutmaster_root=cutmaster_root,
-                cutmaster_python=cutmaster_python,
-                benchmark_root=benchmark_root,
-                started_at=started_at,
-                adapter=adapter_metadata,
-                notes=args.notes,
+                run_dir, benchmark_root, args.run_id, args.method, args.method_version,
+                started_at, project_root, python, adapter,
             )
-
-    print(f"\nRun directory: {run_dir}")
-    print(f"Completed {len(selected)} task(s), failures={failures}")
+    print(f"Run directory: {run_dir}")
     return 1 if failures else 0
 
 

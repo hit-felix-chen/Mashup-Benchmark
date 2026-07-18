@@ -152,23 +152,29 @@ def video_motion_series(path: Path, *, fps: float = 2.0, width: int = 320) -> li
     return values
 
 
-def detect_visual_cuts(path: Path, *, scene_threshold: float = 0.30, min_gap_sec: float = 0.25) -> list[float]:
-    # Full-frame scene-change detection on the rendered output video. This catches
-    # both edit boundaries and internal cuts inside selected source clips.
-    _, stderr = run_cmd_capture_stderr([
-        "ffmpeg", "-hide_banner", "-nostats", "-v", "info", "-i", str(path),
-        "-filter:v", f"select=gt(scene\\,{scene_threshold}),showinfo",
-        "-an", "-f", "null", "-",
-    ])
-    raw_times = [
-        float(match.group(1))
-        for match in re.finditer(rb"pts_time:([0-9]+(?:\.[0-9]+)?)", stderr)
-    ]
-    cuts: list[float] = []
-    for time_sec in raw_times:
-        if not cuts or time_sec - cuts[-1] >= min_gap_sec:
-            cuts.append(time_sec)
-    return cuts
+def detect_visual_cuts(
+    path: Path,
+    *,
+    adaptive_threshold: float = 2.0,
+    adaptive_min_content_val: float = 15.0,
+    adaptive_min_scene_len: int = 5,
+) -> list[float]:
+    """Detect cuts from every frame of the rendered video with an adaptive content detector."""
+    from scenedetect import SceneManager, open_video
+    from scenedetect.detectors import AdaptiveDetector
+
+    video = open_video(str(path))
+    manager = SceneManager()
+    manager.add_detector(
+        AdaptiveDetector(
+            adaptive_threshold=adaptive_threshold,
+            min_content_val=adaptive_min_content_val,
+            min_scene_len=adaptive_min_scene_len,
+        )
+    )
+    manager.detect_scenes(video, show_progress=False)
+    scenes = manager.get_scene_list(start_in_scene=True)
+    return [start.seconds for start, _ in scenes[1:]]
 
 
 def detect_audio_beats(path: Path, *, window_sec: float = 0.05) -> list[float]:

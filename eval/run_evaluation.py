@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,6 +17,8 @@ from eval.metrics.alignment import audio_visual_energy_correspondence, beat_cut_
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_FILE = ROOT / "data" / "tasks" / "mashup_benchmark.jsonl"
+BASE_METRICS = ("BCS", "AEC", "IF", "VQ", "TC", "NC", "OQ")
+VLM_METRICS = frozenset({"IF", "VQ", "TC", "NC"})
 
 
 def load_tasks() -> dict[str, dict[str, Any]]:
@@ -43,6 +46,29 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def parse_csv_args(values: list[str] | None, *, uppercase: bool = False) -> list[str]:
+    parsed: list[str] = []
+    for value in values or []:
+        for item in value.split(","):
+            item = item.strip()
+            if item:
+                parsed.append(item.upper() if uppercase else item)
+    return list(dict.fromkeys(parsed))
+
+
+def load_evaluation_records(eval_id: str) -> dict[str, dict[str, Any]]:
+    path = ROOT / "eval_results" / eval_id / "evaluation_scores.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"Reusable evaluation scores not found: {path}")
+    records: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                row = json.loads(line)
+                records[row["task_id"]] = row
+    return records
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate one Mashup-Benchmark run.")
     parser.add_argument("--run", required=True, help="Path to runs/<run_id>.")
@@ -51,6 +77,25 @@ def main() -> int:
     parser.add_argument("--skip-vlm", action="store_true", help="Only compute automatic BCS/AEC metrics.")
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N records for smoke tests.")
     parser.add_argument("--concurrency", type=int, default=10, help="Number of tasks to evaluate concurrently.")
+    parser.add_argument(
+        "--task-id",
+        "--task-ids",
+        dest="task_ids",
+        action="append",
+        default=None,
+        help="Only reevaluate these task ids. Accepts comma-separated values or repeated arguments.",
+    )
+    parser.add_argument(
+        "--metrics",
+        action="append",
+        default=None,
+        help="Only recompute these metrics: BCS,AEC,IF,VQ,TC,NC,OQ. Quality is always recomputed.",
+    )
+    parser.add_argument(
+        "--reuse-eval-id",
+        default=None,
+        help="Copy unselected tasks/metrics from eval_results/<eval_id> for a partial reevaluation.",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run)
@@ -61,74 +106,131 @@ def main() -> int:
     eval_id = args.eval_id or f"{run_id}_eval_{timestamp}"
     eval_dir = ROOT / "eval_results" / eval_id
 
-    config = load_config(args.config, require_vlm=not args.skip_vlm)
+    requested_task_ids = set(parse_csv_args(args.task_ids))
+    requested_metrics_list = parse_csv_args(args.metrics, uppercase=True)
+    invalid_metrics = sorted(set(requested_metrics_list) - set(BASE_METRICS))
+    if invalid_metrics:
+        parser.error(f"Unsupported metrics: {', '.join(invalid_metrics)}")
+    if args.skip_vlm and set(requested_metrics_list) & VLM_METRICS:
+        parser.error("--skip-vlm cannot be combined with VLM metrics IF,VQ,TC,NC.")
+    is_partial = bool(requested_task_ids or requested_metrics_list)
+    if is_partial and not args.reuse_eval_id:
+        parser.error("--reuse-eval-id is required with --task-ids or --metrics.")
+
+    if requested_metrics_list:
+        selected_metrics = set(requested_metrics_list)
+    elif args.skip_vlm:
+        selected_metrics = {"BCS", "AEC", "OQ"}
+    else:
+        selected_metrics = set(BASE_METRICS)
+
+    require_vlm = bool(selected_metrics & VLM_METRICS) and not args.skip_vlm
+    config = load_config(args.config, require_vlm=require_vlm)
     auto_cfg = config.get("automatic_metrics", {})
     tasks = load_tasks()
     run_records = load_run_records(run_dir)
     if args.limit is not None:
         run_records = run_records[: args.limit]
 
+    run_task_ids = {record["task_id"] for record in run_records}
+    missing_task_ids = sorted(requested_task_ids - run_task_ids)
+    if missing_task_ids:
+        parser.error(f"Task ids not found in run: {', '.join(missing_task_ids)}")
+
+    reused_records = load_evaluation_records(args.reuse_eval_id) if args.reuse_eval_id else {}
+    if args.reuse_eval_id:
+        missing_reused = sorted(run_task_ids - set(reused_records))
+        if missing_reused:
+            parser.error(
+                f"Reusable evaluation {args.reuse_eval_id} is missing tasks: "
+                f"{', '.join(missing_reused)}"
+            )
+
     total_records = len(run_records)
+    reevaluate_task_ids = requested_task_ids or run_task_ids
     concurrency = max(1, int(args.concurrency or 1))
 
     def evaluate_one(idx: int, record: dict[str, Any]) -> tuple[int, dict[str, Any], str | None]:
         task_id = record["task_id"]
         task = tasks[task_id]
-        score_record: dict[str, Any] = {
-            "eval_id": eval_id,
-            "run_id": run_id,
-            "task_id": task_id,
-            "method": record.get("method"),
-            "method_version": record.get("method_version"),
-            "status": "success" if record.get("status") == "success" else "skipped",
-            "scores": {},
-            "metric_details": {},
-            "judge": None,
-            "rationale": {},
-            "cost": {"api_cost_usd": record.get("api_cost_usd")},
-            "efficiency": {"wall_clock_sec": record.get("wall_clock_sec")},
-        }
+        if task_id in reused_records:
+            score_record = copy.deepcopy(reused_records[task_id])
+            score_record["eval_id"] = eval_id
+        else:
+            score_record = {
+                "eval_id": eval_id,
+                "run_id": run_id,
+                "task_id": task_id,
+                "method": record.get("method"),
+                "method_version": record.get("method_version"),
+                "status": "success" if record.get("status") == "success" else "skipped",
+                "scores": {},
+                "metric_details": {},
+                "judge": None,
+                "rationale": {},
+                "cost": {"api_cost_usd": record.get("api_cost_usd")},
+                "efficiency": {"wall_clock_sec": record.get("wall_clock_sec")},
+            }
+        score_record.setdefault("scores", {})
+        score_record.setdefault("metric_details", {})
+        score_record.setdefault("rationale", {})
+
+        if task_id not in reevaluate_task_ids:
+            score_record["scores"]["Quality"] = compute_quality(score_record["scores"], config)
+            return idx, score_record, f"[{idx}/{total_records}] reused {task_id}"
         if record.get("status") != "success":
             return idx, score_record, None
 
         output_video = ROOT / record["output_video"]
-        bcs = beat_cut_synchronization(
-            output_video,
-            scene_threshold=float(auto_cfg.get("scene_threshold", 0.30)),
-            scene_min_gap_sec=float(auto_cfg.get("scene_min_gap_sec", 0.25)),
-            beat_window_sec=float(auto_cfg.get("beat_window_sec", 0.05)),
-            tau_sec=float(auto_cfg.get("bcs_tau_sec", 0.196)),
-        )
-        aec = audio_visual_energy_correspondence(
-            output_video,
-            video_fps=float(auto_cfg.get("video_sample_fps", 2.0)),
-            audio_window_sec=float(auto_cfg.get("audio_window_sec", 0.5)),
-        )
-        score_record["scores"]["BCS"] = bcs["score"]
-        score_record["scores"]["AEC"] = aec["score"]
-        score_record["metric_details"]["BCS"] = bcs
-        score_record["metric_details"]["AEC"] = aec
+        if "BCS" in selected_metrics:
+            bcs = beat_cut_synchronization(
+                output_video,
+                adaptive_threshold=float(auto_cfg.get("adaptive_threshold", 2.0)),
+                adaptive_min_content_val=float(auto_cfg.get("adaptive_min_content_val", 15.0)),
+                adaptive_min_scene_len=int(auto_cfg.get("adaptive_min_scene_len", 5)),
+                beat_window_sec=float(auto_cfg.get("beat_window_sec", 0.05)),
+                tau_sec=float(auto_cfg.get("bcs_tau_sec", 0.196)),
+            )
+            score_record["scores"]["BCS"] = bcs["score"]
+            score_record["metric_details"]["BCS"] = bcs
+        if "AEC" in selected_metrics:
+            aec = audio_visual_energy_correspondence(
+                output_video,
+                video_fps=float(auto_cfg.get("video_sample_fps", 2.0)),
+                audio_window_sec=float(auto_cfg.get("audio_window_sec", 0.5)),
+            )
+            score_record["scores"]["AEC"] = aec["score"]
+            score_record["metric_details"]["AEC"] = aec
 
         # Optional human rating. If present, OQ joins the weighted Quality score;
         # otherwise compute_quality renormalizes over the available metrics.
-        human_scores = record.get("human_scores") or {}
-        record_scores = record.get("scores") or {}
-        oq_score = human_scores.get("OQ", record_scores.get("OQ"))
-        if oq_score is not None:
-            oq_score = max(1.0, min(5.0, float(oq_score)))
-            score_record["scores"]["OQ"] = oq_score
-            score_record["metric_details"]["OQ"] = {
-                "source": "human_scores" if "OQ" in human_scores else "scores",
-                "scale": "likert_1_5",
-                "raw_score": oq_score,
-                "normalized_score": normalize_score_for_quality("OQ", oq_score),
-            }
+        if "OQ" in selected_metrics:
+            human_scores = record.get("human_scores") or {}
+            record_scores = record.get("scores") or {}
+            oq_score = human_scores.get("OQ", record_scores.get("OQ"))
+            if oq_score is not None:
+                oq_score = max(1.0, min(5.0, float(oq_score)))
+                score_record["scores"]["OQ"] = oq_score
+                score_record["metric_details"]["OQ"] = {
+                    "source": "human_scores" if "OQ" in human_scores else "scores",
+                    "scale": "likert_1_5",
+                    "raw_score": oq_score,
+                    "normalized_score": normalize_score_for_quality("OQ", oq_score),
+                }
+            else:
+                score_record["scores"].pop("OQ", None)
+                score_record["metric_details"].pop("OQ", None)
 
-        if not args.skip_vlm:
+        selected_vlm_metrics = selected_metrics & VLM_METRICS
+        if selected_vlm_metrics:
             judge = VLMJudge(config)
             try:
                 vlm_result = judge.score(output_video, task, record)
             except VLMJudgeSkipped as exc:
+                for metric in selected_vlm_metrics:
+                    score_record["scores"].pop(metric, None)
+                    score_record["metric_details"].pop(metric, None)
+                    score_record["rationale"].pop(metric, None)
                 skip_detail = exc.to_dict()
                 score_record["diagnostics"] = {"vlm_skip": skip_detail}
                 score_record["judge"] = {
@@ -148,10 +250,14 @@ def main() -> int:
                     f"(VLM skipped: {exc.failure_type})"
                 )
             else:
-                score_record["scores"].update(vlm_result["scores"])
-                score_record["rationale"].update(vlm_result.get("rationale") or {})
+                for metric in selected_vlm_metrics:
+                    value = vlm_result["scores"][metric]
+                    score_record["scores"][metric] = value
+                    if metric in (vlm_result.get("rationale") or {}):
+                        score_record["rationale"][metric] = vlm_result["rationale"][metric]
                 score_record["diagnostics"] = vlm_result.get("diagnostics") or {}
-                for metric, value in vlm_result["scores"].items():
+                for metric in selected_vlm_metrics:
+                    value = vlm_result["scores"][metric]
                     score_record["metric_details"][metric] = {
                         "scale": vlm_result.get("score_scale"),
                         "raw_score": value,
@@ -216,6 +322,9 @@ def main() -> int:
         "evaluation_scores": str(scores_path.relative_to(ROOT)),
         "created_at": datetime.now(UTC).astimezone().isoformat(),
         "skip_vlm": args.skip_vlm,
+        "reuse_eval_id": args.reuse_eval_id,
+        "reevaluated_task_ids": sorted(reevaluate_task_ids) if is_partial else None,
+        "reevaluated_metrics": sorted(selected_metrics) if is_partial else None,
     })
     write_json(eval_dir / "summary.json", summary)
     print(f"Wrote {scores_path}")

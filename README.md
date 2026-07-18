@@ -190,7 +190,7 @@ VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Li
 指标含义：
 
 - IF：Instruction Following，指令遵循。
-- BCS：Beat-Cut Synchronization，节拍-切点同步；基于最终成片的全帧视觉切换检测，不读取编辑 timeline。
+- BCS：Beat-Cut Synchronization，节拍-切点同步；使用 PySceneDetect AdaptiveDetector 对最终成片进行全帧自适应切点检测，不读取编辑 timeline。
 - AEC：Audio-Visual Energy Correspondence，音画能量对应。
 - VQ：Visual Quality，视觉质量。
 - TC：Transition Continuity，片段和转场连续性。
@@ -252,7 +252,7 @@ uv run python scripts/export_specified_metrics_table.py \
 | `--overwrite`         | 即使该 task 的`output.mp4` 已存在，也重新生成。默认行为是同名 run 可继续补跑：已成功且有成片的 task 会跳过，失败或不完整 task 会重试。                                  |
 | `--dry-run`           | 只打印将要执行的命令并写入跳过元数据，不调用模型或渲染，适合检查路径和参数。                                                                                             |
 
-方法独有的开关放在各方法小节中说明，例如 CutMaster 的 reflective policy / experience logger、CutClaw 的 hook dialogue、ending video、裁剪比例和原视频音量。
+方法独有的开关放在各方法小节中说明，例如 CutMaster 的配置文件和可选字幕输入，以及 CutClaw 的 hook dialogue、ending video、裁剪比例和原视频音量。
 
 </details>
 
@@ -260,33 +260,32 @@ uv run python scripts/export_specified_metrics_table.py \
 <details>
 <summary><strong>CutMaster（Our Method）</strong></summary>
 
-CutMaster 是我们当前优化中的剪辑智能体方法，基于原始长视频音乐同步剪辑流水线继续开发，新增 reflective policy、experience logger 和独立 benchmark adapter。当前重点目标是提升 `task_001` 的事件覆盖、时间顺序、成片时长控制和最终 `Quality` 分数。
+CutMaster 是后端独立的长视频音乐混剪流水线。当前版本复用给定字幕或调用 DashScope Fun-ASR，使用 LLM 从字幕时间轴选择片段，再通过 FFmpeg 裁剪、拼接并混合指定 BGM。benchmark adapter 会把成片、脚本、日志和运行元数据映射到标准 `runs/<run_id>/` 结构。
 
 - 项目路径：`/Users/xinfanchen/Project/CutMaster`
 - 当前状态：our method；已提供独立 benchmark adapter `scripts/run_cutmaster.py`。
-- 关键改动：`sports_event_highlight_v1` reflective policy、render 阶段按源视频时间排序、运行后写出结构化 experience record。
+- 当前核心流程：Fun-ASR / 给定 SRT -> LLM 时间片选择 -> 时长适配 -> FFmpeg 渲染与 BGM 混音。
 
 运行 `task_001`（当前优化目标）：
 
 ```bash
-python3 scripts/run_cutmaster.py \
+uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
   --task-id task_001 \
-  --run-id cutmaster_reflective_mvp \
-  --method-version reflective_mvp0 \
-  --overwrite \
-  --no-ending
+  --run-id cutmaster_benchmark \
+  --method-version backend-mvp \
+  --overwrite
 ```
 
 批量运行全部任务：
 
 ```bash
-python3 scripts/run_cutmaster.py \
+uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
   --all \
-  --run-id cutmaster_reflective_mvp
+  --run-id cutmaster_benchmark
 ```
 
 CutMaster 特有参数和建议：
@@ -295,22 +294,22 @@ CutMaster 特有参数和建议：
 | --- | --- |
 | `--cutmaster-root` | CutMaster 项目根目录。 |
 | `--cutmaster-python` | CutMaster 使用的 Python 解释器，推荐显式指向 `.venv/bin/python`。 |
-| `--method-version` | CutMaster 实验版本，例如 `reflective_mvp0`。 |
-| `--no-ending` | 不追加 ending video。对 `task_001` 推荐开启，避免成片超过 60 秒目标。 |
-| `--no-hook-dialogue` | 不渲染 hook dialogue。当前 CutMaster reflective policy 会对体育事件类任务自动禁用不合适的晚段 hook。 |
+| `--cutmaster-config` | CutMaster TOML 配置；默认使用 `<cutmaster-root>/config.toml`。 |
+| `--subtitle-path` | 单任务运行时可显式复用 SRT；省略时真实调用 Fun-ASR。 |
+| `--method-version` | CutMaster 实验版本，例如 `backend-mvp`。 |
 | `--overwrite` | 重新生成已有 task 输出。调试 `task_001` 时建议使用。 |
 
-CutMaster 的原始中间结果保存在 CutMaster 项目的 `Output/` 中；benchmark 只保存标准化的 `runs/<run_id>/`。如果 experience logger 启用，还会在 CutMaster 侧写出：
+CutMaster 中间结果直接保存在对应 task 的 benchmark artifacts 目录中：
 
 ```text
-Output/Memory/experiences/<task_id>.json
+runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 ```
 
 运行完成后可用以下命令校验并评测：
 
 ```bash
-python3 scripts/validate_run.py runs/cutmaster_reflective_mvp
-uv run python -m eval.run_evaluation --run runs/cutmaster_reflective_mvp --config eval/config.yaml
+uv run python scripts/validate_run.py runs/cutmaster_benchmark
+uv run python -m eval.run_evaluation --run runs/cutmaster_benchmark --config eval/config.yaml
 ```
 
 </details>
@@ -647,7 +646,7 @@ uv run python scripts/validate_run.py runs/<run_id>
 调用 CutMaster（our method），生成标准化 `runs/<run_id>/` 输出。
 
 ```bash
-uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_reflective_mvp --method-version reflective_mvp0
+uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_benchmark --method-version backend-mvp
 ```
 
 #### `scripts/run_cutclaw.py`
@@ -704,6 +703,19 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 ```
 
 默认并发数为 10，可通过 `--concurrency <N>` 调整；输出文件仍按 task 原始顺序写入。
+
+支持基于已有评测结果做局部重评。`--task-ids` 指定任务，`--metrics` 指定重算指标，未选中的任务和指标从 `--reuse-eval-id` 对应结果复用；`Quality` 始终根据合并后的指标重新计算：
+
+```bash
+uv run python -m eval.run_evaluation \
+  --run runs/cutclaw_benchmark \
+  --config eval/config.yaml \
+  --reuse-eval-id <existing_eval_id> \
+  --task-id task_022 \
+  --metrics BCS
+```
+
+`--task-id`（别名 `--task-ids`）和 `--metrics` 均支持逗号分隔或重复传入。可选指标为 `BCS/AEC/IF/VQ/TC/NC/OQ`；VLM 指标即使只重评其中一项，也会完成一次联合 VLM 请求，但只覆盖指定字段。
 
 如果某个成片触发 VLM 服务端内容检查，评测器会跳过该 task 的 VLM-as-judge 指标并继续处理后续任务；该 task 仍保留本地自动指标，`Quality` 会基于可用指标重新归一化，跳过原因记录在 `judge.status = skipped` 和 `summary.json` 的 `vlm_judge` 字段中。
 

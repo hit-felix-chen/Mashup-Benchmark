@@ -91,8 +91,9 @@ def load_config(path: str | Path | None = None, require_vlm: bool = True) -> dic
     data.setdefault("automatic_metrics", {})
     data["automatic_metrics"].setdefault("video_sample_fps", 2.0)
     data["automatic_metrics"].setdefault("audio_window_sec", 0.5)
-    data["automatic_metrics"].setdefault("scene_threshold", 0.30)
-    data["automatic_metrics"].setdefault("scene_min_gap_sec", 0.25)
+    data["automatic_metrics"].setdefault("adaptive_threshold", 2.0)
+    data["automatic_metrics"].setdefault("adaptive_min_content_val", 15.0)
+    data["automatic_metrics"].setdefault("adaptive_min_scene_len", 5)
     data["automatic_metrics"].setdefault("beat_window_sec", 0.05)
     data["automatic_metrics"].setdefault("bcs_tau_sec", 0.196)
     return data

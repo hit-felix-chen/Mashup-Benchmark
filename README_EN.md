@@ -190,7 +190,7 @@ Raw VLM-as-judge scores for `IF/VQ/TC/NC` and the human `OQ` score use a 1-5 Lik
 Metrics:
 
 - IF: Instruction Following.
-- BCS: Beat-Cut Synchronization; based on full-frame visual cut detection on the final rendered video, without reading the edit timeline.
+- BCS: Beat-Cut Synchronization; uses PySceneDetect AdaptiveDetector for full-frame adaptive cut detection on the final rendered video, without reading the edit timeline.
 - AEC: Audio-Visual Energy Correspondence.
 - VQ: Visual Quality.
 - TC: Transition Continuity.
@@ -252,7 +252,7 @@ Each baseline adapter should follow the same shared argument conventions whereve
 | `--overwrite` | Regenerate a task even if its `output.mp4` already exists. By default, the same run can be resumed: successful tasks with an output video are skipped, while failed or incomplete tasks are retried. |
 | `--dry-run` | Print the commands and write skipped metadata without calling models or rendering, useful for checking paths and arguments. |
 
-Method-specific options are documented in each method section, such as CutMaster's reflective policy / experience logger and CutClaw's hook dialogue, ending video, crop ratio, and source-video audio volume.
+Method-specific options are documented in each method section, such as CutMaster's config file and optional subtitle input, and CutClaw's hook dialogue, ending video, crop ratio, and source-video audio volume.
 
 </details>
 
@@ -260,33 +260,32 @@ Method-specific options are documented in each method section, such as CutMaster
 <details>
 <summary><strong>CutMaster (Our Method)</strong></summary>
 
-CutMaster is our current editing-agent method. It continues from the long-video music-synchronized editing pipeline and adds reflective policy, an experience logger, and an independent benchmark adapter. The current optimization target is improving `task_001` through better event coverage, source chronology, duration control, and final `Quality`.
+CutMaster is a backend-only long-video music-montage pipeline. The current version reuses supplied subtitles or calls DashScope Fun-ASR, uses an LLM to select source ranges from the subtitle timeline, then trims, concatenates, and mixes the specified BGM with FFmpeg. The benchmark adapter maps the video, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
 
 - Project root: `/Users/xinfanchen/Project/CutMaster`
 - Status: our method; independent benchmark adapter available as `scripts/run_cutmaster.py`.
-- Key changes: `sports_event_highlight_v1` reflective policy, render-time source timestamp sorting, and structured experience records after each run.
+- Current core flow: Fun-ASR / supplied SRT -> LLM timestamp selection -> duration adaptation -> FFmpeg rendering and BGM mixing.
 
 Run `task_001` (current optimization target):
 
 ```bash
-python3 scripts/run_cutmaster.py \
+uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
   --task-id task_001 \
-  --run-id cutmaster_reflective_mvp \
-  --method-version reflective_mvp0 \
-  --overwrite \
-  --no-ending
+  --run-id cutmaster_benchmark \
+  --method-version backend-mvp \
+  --overwrite
 ```
 
 Run all tasks in batch:
 
 ```bash
-python3 scripts/run_cutmaster.py \
+uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
   --all \
-  --run-id cutmaster_reflective_mvp
+  --run-id cutmaster_benchmark
 ```
 
 CutMaster-specific arguments and recommendations:
@@ -295,22 +294,22 @@ CutMaster-specific arguments and recommendations:
 | --- | --- |
 | `--cutmaster-root` | CutMaster project root. |
 | `--cutmaster-python` | Python executable used by CutMaster; explicitly pointing to `.venv/bin/python` is recommended. |
-| `--method-version` | CutMaster experiment label, such as `reflective_mvp0`. |
-| `--no-ending` | Do not append the ending video. Recommended for `task_001` to avoid exceeding the 60-second target. |
-| `--no-hook-dialogue` | Do not render hook dialogue. CutMaster's reflective policy automatically disables unsuitable late-game hooks for sports event tasks. |
+| `--cutmaster-config` | CutMaster TOML config; defaults to `<cutmaster-root>/config.toml`. |
+| `--subtitle-path` | Explicitly reuse an SRT for a single task; if omitted, Fun-ASR is called. |
+| `--method-version` | CutMaster experiment label, such as `backend-mvp`. |
 | `--overwrite` | Regenerate existing task outputs. Recommended while iterating on `task_001`. |
 
-CutMaster raw intermediate outputs remain in the CutMaster project's `Output/` directory; the benchmark stores only the standardized `runs/<run_id>/` structure. When the experience logger is enabled, CutMaster also writes:
+CutMaster intermediate outputs are stored directly in each task's benchmark artifacts directory:
 
 ```text
-Output/Memory/experiences/<task_id>.json
+runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 ```
 
 After generation, validate and evaluate with:
 
 ```bash
-python3 scripts/validate_run.py runs/cutmaster_reflective_mvp
-uv run python -m eval.run_evaluation --run runs/cutmaster_reflective_mvp --config eval/config.yaml
+uv run python scripts/validate_run.py runs/cutmaster_benchmark
+uv run python -m eval.run_evaluation --run runs/cutmaster_benchmark --config eval/config.yaml
 ```
 
 </details>
@@ -621,7 +620,7 @@ uv run python scripts/validate_run.py runs/<run_id>
 Run CutMaster (our method) and export standardized `runs/<run_id>/` outputs.
 
 ```bash
-uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_reflective_mvp --method-version reflective_mvp0
+uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_benchmark --method-version backend-mvp
 ```
 
 #### `scripts/run_cutclaw.py`
@@ -678,6 +677,19 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 ```
 
 The default concurrency is 10 and can be changed with `--concurrency <N>`; output files are still written in the original task order.
+
+Partial reevaluation can reuse an existing result. `--task-ids` selects tasks, `--metrics` selects metrics to recompute, and all unselected tasks and metrics are copied from `--reuse-eval-id`. `Quality` is always recomputed from the merged scores:
+
+```bash
+uv run python -m eval.run_evaluation \
+  --run runs/cutclaw_benchmark \
+  --config eval/config.yaml \
+  --reuse-eval-id <existing_eval_id> \
+  --task-id task_022 \
+  --metrics BCS
+```
+
+`--task-id` (alias `--task-ids`) and `--metrics` accept comma-separated or repeated values. Supported metrics are `BCS/AEC/IF/VQ/TC/NC/OQ`. Selecting any VLM metric still performs one joint VLM request, but only the requested fields are replaced.
 
 If a generated video triggers server-side VLM content inspection, the evaluator skips that task's VLM-as-judge metrics and continues with the remaining tasks. The task still keeps local automatic metrics, `Quality` is renormalized over available metrics, and the skip reason is recorded under `judge.status = skipped` and the `vlm_judge` field in `summary.json`.
 
