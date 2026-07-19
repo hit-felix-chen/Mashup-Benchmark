@@ -4,7 +4,14 @@ import math
 from pathlib import Path
 from typing import Any
 
-from eval.media import audio_rms_series, detect_audio_beats, detect_visual_cuts, pearson, video_motion_series
+from eval.media import (
+    audio_rms_series,
+    detect_audio_beats,
+    detect_audio_beats_librosa,
+    detect_visual_cuts,
+    pearson,
+    video_motion_series,
+)
 
 
 def beat_cut_synchronization(
@@ -14,6 +21,9 @@ def beat_cut_synchronization(
     adaptive_min_content_val: float = 15.0,
     adaptive_min_scene_len: int = 5,
     beat_window_sec: float = 0.05,
+    beat_detector: str = "librosa",
+    librosa_sample_rate: int = 22050,
+    librosa_hop_length: int = 512,
     tau_sec: float = 0.196,
 ) -> dict[str, Any]:
     cuts = detect_visual_cuts(
@@ -22,14 +32,31 @@ def beat_cut_synchronization(
         adaptive_min_content_val=adaptive_min_content_val,
         adaptive_min_scene_len=adaptive_min_scene_len,
     )
-    beats = detect_audio_beats(output_video, window_sec=beat_window_sec)
+    if beat_detector == "rms_peak":
+        beats = detect_audio_beats(output_video, window_sec=beat_window_sec)
+        beat_detection = "rms_local_peak"
+    elif beat_detector == "librosa":
+        beats = detect_audio_beats_librosa(
+            output_video,
+            sample_rate=librosa_sample_rate,
+            hop_length=librosa_hop_length,
+        )
+        beat_detection = "librosa_beat_track"
+    else:
+        raise ValueError(f"unsupported beat_detector: {beat_detector}")
+
     if not cuts or not beats:
         return {
             "score": 0.0,
             "cut_detection": "pyscenedetect_adaptive_full_frame",
+            "beat_detection": beat_detection,
             "adaptive_threshold": adaptive_threshold,
             "adaptive_min_content_val": adaptive_min_content_val,
             "adaptive_min_scene_len": adaptive_min_scene_len,
+            "beat_detector": beat_detector,
+            "beat_window_sec": beat_window_sec,
+            "librosa_sample_rate": librosa_sample_rate,
+            "librosa_hop_length": librosa_hop_length,
             "num_cuts": len(cuts),
             "num_beats": len(beats),
             "mean_nearest_beat_distance_sec": None,
@@ -40,9 +67,14 @@ def beat_cut_synchronization(
     return {
         "score": max(0.0, min(100.0, raw * 100.0)),
         "cut_detection": "pyscenedetect_adaptive_full_frame",
+        "beat_detection": beat_detection,
         "adaptive_threshold": adaptive_threshold,
         "adaptive_min_content_val": adaptive_min_content_val,
         "adaptive_min_scene_len": adaptive_min_scene_len,
+        "beat_detector": beat_detector,
+        "beat_window_sec": beat_window_sec,
+        "librosa_sample_rate": librosa_sample_rate,
+        "librosa_hop_length": librosa_hop_length,
         "num_cuts": len(cuts),
         "num_beats": len(beats),
         "mean_nearest_beat_distance_sec": sum(distances) / len(distances),

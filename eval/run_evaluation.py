@@ -189,6 +189,9 @@ def main() -> int:
                 adaptive_min_content_val=float(auto_cfg.get("adaptive_min_content_val", 15.0)),
                 adaptive_min_scene_len=int(auto_cfg.get("adaptive_min_scene_len", 5)),
                 beat_window_sec=float(auto_cfg.get("beat_window_sec", 0.05)),
+                beat_detector=str(auto_cfg.get("bcs_beat_detector", "librosa")),
+                librosa_sample_rate=int(auto_cfg.get("bcs_librosa_sample_rate", 22050)),
+                librosa_hop_length=int(auto_cfg.get("bcs_librosa_hop_length", 512)),
                 tau_sec=float(auto_cfg.get("bcs_tau_sec", 0.196)),
             )
             score_record["scores"]["BCS"] = bcs["score"]

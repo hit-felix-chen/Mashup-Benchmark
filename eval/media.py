@@ -77,6 +77,20 @@ def audio_rms_series(path: Path, *, sample_rate: int = 16000, window_sec: float 
     return values
 
 
+def audio_float_samples(path: Path, *, sample_rate: int = 22050) -> tuple[object, int]:
+    if not has_audio_stream(path):
+        import numpy as np
+
+        return np.array([], dtype="float32"), sample_rate
+    raw = run_cmd([
+        "ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(sample_rate),
+        "-f", "f32le", "-",
+    ])
+    import numpy as np
+
+    return np.frombuffer(raw, dtype="<f4"), sample_rate
+
+
 def _read_ppm_frames(blob: bytes):
     idx = 0
     n = len(blob)
@@ -194,6 +208,33 @@ def detect_audio_beats(path: Path, *, window_sec: float = 0.05) -> list[float]:
             beats.append(i * window_sec)
             last_idx = i
     return beats
+
+
+def detect_audio_beats_librosa(
+    path: Path,
+    *,
+    sample_rate: int = 22050,
+    hop_length: int = 512,
+) -> list[float]:
+    y, sr = audio_float_samples(path, sample_rate=sample_rate)
+    if len(y) < hop_length * 4:
+        return []
+
+    import librosa
+
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
+    _, beat_frames = librosa.beat.beat_track(
+        onset_envelope=onset_env,
+        sr=sr,
+        hop_length=hop_length,
+        units="frames",
+        trim=False,
+    )
+    if len(beat_frames) == 0:
+        return []
+
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop_length)
+    return [float(t) for t in beat_times]
 
 
 def pearson(xs: list[float], ys: list[float]) -> float | None:
