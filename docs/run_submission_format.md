@@ -126,26 +126,27 @@ Example:
   "num_failed": 0,
   "run_outputs": "runs/cutmaster_embedding_v4_full/run_outputs.jsonl",
   "code": {
-    "repo": "CutClaw",
-    "branch": "CutMaster",
+    "repo": "CutMaster",
+    "repo_url": "https://github.com/hit-cxf/CutMaster",
+    "branch": "main",
     "commit": "git_sha",
     "dirty": false
   },
   "adapter": {
-    "name": "run_cutclaw",
-    "script": "scripts/run_cutclaw.py",
-    "project_root": "/path/to/CutClaw",
-    "python": "/path/to/CutClaw/.venv/bin/python",
+    "name": "run_cutmaster",
+    "script": "scripts/run_cutmaster.py",
+    "project_root": "/path/to/CutMaster",
+    "python": "/path/to/CutMaster/.venv/bin/python",
     "benchmark_root": "/path/to/Mashup-Benchmark",
     "results_root": "runs",
-    "raw_output_root": "/path/to/CutClaw/Output",
     "task_selection": {
       "mode": "all",
       "task_ids": ["task_001", "task_002"]
     },
     "options": {
       "overwrite": false,
-      "dry_run": false
+      "config": "/path/to/CutMaster/config.toml",
+      "subtitle_path": null
     }
   },
   "config": {

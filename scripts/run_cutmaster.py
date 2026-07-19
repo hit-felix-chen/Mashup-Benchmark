@@ -19,6 +19,7 @@ BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CUTMASTER_ROOT = BENCHMARK_ROOT.parent / "CutMaster"
 DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
+CUTMASTER_REPOSITORY_URL = "https://github.com/hit-cxf/CutMaster"
 
 
 def now_iso() -> str:
@@ -41,9 +42,7 @@ def repo_info(project_root: Path) -> dict[str, Any]:
     if not (project_root / ".git").exists():
         return {
             "repo": "CutMaster",
-            "branch": None,
-            "commit": None,
-            "dirty": None,
+            "repo_url": CUTMASTER_REPOSITORY_URL,
         }
 
     def git(*args: str) -> str | None:
@@ -57,12 +56,20 @@ def repo_info(project_root: Path) -> dict[str, Any]:
         except Exception:
             return None
 
-    return {
+    branch = git("branch", "--show-current")
+    commit = git("rev-parse", "HEAD")
+    status = git("status", "--short")
+    info: dict[str, Any] = {
         "repo": "CutMaster",
-        "branch": git("branch", "--show-current"),
-        "commit": git("rev-parse", "HEAD"),
-        "dirty": bool(git("status", "--short")),
+        "repo_url": CUTMASTER_REPOSITORY_URL,
     }
+    if branch:
+        info["branch"] = branch
+    if commit:
+        info["commit"] = commit
+    if status is not None:
+        info["dirty"] = bool(status)
+    return info
 
 
 def stream_command(command: list[str], log_path: Path, cwd: Path) -> int:
@@ -374,9 +381,17 @@ def main() -> int:
         "script": "scripts/run_cutmaster.py",
         "project_root": str(project_root),
         "python": str(python),
-        "config": str(config),
-        "task_ids": [task["id"] for task in selected],
-        "overwrite": args.overwrite,
+        "benchmark_root": str(benchmark_root),
+        "results_root": results_root.relative_to(benchmark_root).as_posix(),
+        "task_selection": {
+            "mode": "all" if args.all else "task_ids",
+            "task_ids": [task["id"] for task in selected],
+        },
+        "options": {
+            "overwrite": bool(args.overwrite),
+            "config": str(config),
+            "subtitle_path": str(subtitle) if subtitle else None,
+        },
     }
     failures = 0
     for index, task in enumerate(selected, start=1):

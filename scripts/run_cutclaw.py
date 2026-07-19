@@ -477,7 +477,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--run-id", default="cutclaw_benchmark")
     parser.add_argument("--method", default="CutClaw")
-    parser.add_argument("--method-version", default="CutMaster")
+    parser.add_argument("--method-version", default="main")
     parser.add_argument("--video-type", choices=["film", "vlog"], default="film")
     parser.add_argument("--overwrite", action="store_true", help="Regenerate even if task output.mp4 already exists.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands and write metadata without executing heavy steps.")
