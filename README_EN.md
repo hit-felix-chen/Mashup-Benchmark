@@ -260,11 +260,11 @@ Method-specific options are documented in each method section, such as CutMaster
 <details>
 <summary><strong>CutMaster (Our Method)</strong></summary>
 
-CutMaster is a backend-only long-video music-montage pipeline. The current version reuses supplied subtitles or calls DashScope Fun-ASR, uses an LLM to select source ranges from the subtitle timeline, then trims, concatenates, and mixes the specified BGM with FFmpeg. The benchmark adapter maps the video, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
+CutMaster is a backend-only long-video music-montage pipeline. The current version reuses supplied subtitles or calls DashScope Fun-ASR, reconstructs dialogue with parallel LLM batches, uses an LLM to select source ranges from the subtitle timeline, aligns output boundaries to BGM accents, detects each source clip's internal visual cuts in parallel, and refines the source windows with a minimax objective before FFmpeg trimming, concatenation, and BGM mixing. The benchmark adapter maps the video, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
 
 - Project root: `/Users/xinfanchen/Project/CutMaster`
 - Status: our method; independent benchmark adapter available as `scripts/run_cutmaster.py`.
-- Current core flow: Fun-ASR / supplied SRT -> LLM timestamp selection -> duration adaptation -> FFmpeg rendering and BGM mixing.
+- Current core flow: Fun-ASR / supplied SRT -> parallel LLM dialogue reconstruction -> LLM timestamp selection -> BGM accent detection and output-boundary alignment -> parallel internal-cut detection and minimax source-window refinement -> FFmpeg rendering and BGM mixing.
 
 Run `task_001` (current optimization target):
 

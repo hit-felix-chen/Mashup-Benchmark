@@ -38,9 +38,22 @@ def resolve_python(project_root: Path, explicit: Path | None) -> Path:
 
 
 def repo_info(project_root: Path) -> dict[str, Any]:
+    if not (project_root / ".git").exists():
+        return {
+            "repo": "CutMaster",
+            "branch": None,
+            "commit": None,
+            "dirty": None,
+        }
+
     def git(*args: str) -> str | None:
         try:
-            return subprocess.check_output(["git", *args], cwd=project_root, text=True).strip()
+            return subprocess.check_output(
+                ["git", *args],
+                cwd=project_root,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
         except Exception:
             return None
 

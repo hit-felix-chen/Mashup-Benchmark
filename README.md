@@ -260,11 +260,11 @@ uv run python scripts/export_specified_metrics_table.py \
 <details>
 <summary><strong>CutMaster（Our Method）</strong></summary>
 
-CutMaster 是后端独立的长视频音乐混剪流水线。当前版本复用给定字幕或调用 DashScope Fun-ASR，使用 LLM 从字幕时间轴选择片段，再通过 FFmpeg 裁剪、拼接并混合指定 BGM。benchmark adapter 会把成片、脚本、日志和运行元数据映射到标准 `runs/<run_id>/` 结构。
+CutMaster 是后端独立的长视频音乐混剪流水线。当前版本复用给定字幕或调用 DashScope Fun-ASR，并行完成 LLM 台词重构后从字幕时间轴选择片段，先将成片边界对齐到 BGM 重音，再并行检测各源片段的内部视觉切点，通过 minimax 优化微调原片取材窗口，最后由 FFmpeg 裁剪、拼接并混合指定 BGM。benchmark adapter 会把成片、脚本、日志和运行元数据映射到标准 `runs/<run_id>/` 结构。
 
 - 项目路径：`/Users/xinfanchen/Project/CutMaster`
 - 当前状态：our method；已提供独立 benchmark adapter `scripts/run_cutmaster.py`。
-- 当前核心流程：Fun-ASR / 给定 SRT -> LLM 时间片选择 -> 时长适配 -> FFmpeg 渲染与 BGM 混音。
+- 当前核心流程：Fun-ASR / 给定 SRT -> 并行 LLM 台词重构 -> LLM 时间片选择 -> BGM 重音检测与成片边界对齐 -> 并行内部切点检测与 minimax 原片窗口微调 -> FFmpeg 渲染与 BGM 混音。
 
 运行 `task_001`（当前优化目标）：
 
