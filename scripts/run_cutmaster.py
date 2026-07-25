@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ DEFAULT_CUTMASTER_ROOT = BENCHMARK_ROOT.parent / "CutMaster"
 DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 CUTMASTER_REPOSITORY_URL = "https://github.com/hit-cxf/CutMaster"
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def now_iso() -> str:
@@ -92,7 +94,7 @@ def stream_command(command: list[str], log_path: Path, cwd: Path) -> int:
         assert process.stdout is not None
         for line in process.stdout:
             print(line, end="")
-            log.write(line)
+            log.write(ANSI_ESCAPE_RE.sub("", line))
         return process.wait()
 
 

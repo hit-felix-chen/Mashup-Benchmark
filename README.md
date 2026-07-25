@@ -146,7 +146,7 @@ runs/<run_id>/
         shot_point.json         # 可选，方法内部生成的剪辑点或时间线
 ```
 
-其中 `<run_id>` 用于标识方法和实验设置，例如 `cutclaw_benchmark` 或 `cutmaster_embedding_v4_full`；`<task_id>` 使用 `task_001` 到 `task_040` 的规范编号。评测时最小必需文件是 `run_manifest.json`、`run_outputs.jsonl`，以及每个成功 task 下的 `output.mp4` 和 `run_output.json`。详细提交格式见 `docs/run_submission_format.md`。
+其中 `<run_id>` 用于标识方法和实验设置，例如 `cutclaw_benchmark` 或 `cutmaster_agentic_task034_v1`；`<task_id>` 使用 `task_001` 到 `task_040` 的规范编号。评测时最小必需文件是 `run_manifest.json`、`run_outputs.jsonl`，以及每个成功 task 下的 `output.mp4` 和 `run_output.json`。详细提交格式见 `docs/run_submission_format.md`。
 
 </details>
 
@@ -260,23 +260,38 @@ uv run python scripts/export_specified_metrics_table.py \
 <details>
 <summary><strong>CutMaster（Our Method）</strong></summary>
 
-CutMaster 是后端独立的长视频音乐混剪流水线。当前版本复用给定字幕或调用 DashScope Fun-ASR，并行完成 LLM 台词重构后从字幕时间轴选择片段，先将成片边界对齐到 BGM 重音，再并行检测各源片段的内部视觉切点，通过 minimax 优化微调原片取材窗口，最后由 FFmpeg 裁剪、拼接并混合指定 BGM。benchmark adapter 会把成片、脚本、日志和运行元数据映射到标准 `runs/<run_id>/` 结构。
+CutMaster 是后端独立的 agentic 长视频音乐混剪工作流。当前版本先对原片建立可跨 task 复用的结构化素材描述：PySceneDetect 提取完整 Shot 边界，给定 SRT 或 DashScope Fun-ASR 提供台词，LLM 按连续对话/独白构造 Segment，VLM 再用每个 Shot 的 5 张采样帧标注画面、场景和人物。Planner 随后依次完成 Slot 规划、候选检索与真实画面核验、Pairwise VLM 连续性预计算、严格原片时序 Beam Search 和候选池内脚本复核。最后对原片窗口进行切点优化，并用 FFmpeg 仅以原片片段硬切拼接；不生成转场特效，原片音频静音，只保留指定 BGM。
 
-- 项目路径：`/Users/xinfanchen/Project/CutMaster`
-- 当前状态：our method；已提供独立 benchmark adapter `scripts/run_cutmaster.py`。
-- 当前核心流程：Fun-ASR / 给定 SRT -> 并行 LLM 台词重构 -> LLM 时间片选择 -> BGM 重音检测与成片边界对齐 -> 并行内部切点检测与 minimax 原片窗口微调 -> FFmpeg 渲染与 BGM 混音。
+benchmark adapter `scripts/run_cutmaster.py` 负责把 benchmark task 转换为 CutMaster CLI 参数，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
 
-运行 `task_001`（当前优化目标）：
+运行前准备：
+
+```bash
+cd /Users/xinfanchen/Project/CutMaster
+uv sync
+cp config.example.toml config.toml
+# 编辑 config.toml，分别配置 [llm]、[vlm] 和 [asr]
+
+cd /Users/xinfanchen/Project/Mashup-Benchmark
+uv sync
+```
+
+需要 Python 3.12，以及 `PATH` 中可用的 `ffmpeg` 和 `ffprobe`。`config.toml` 中的 LLM 与 VLM 可以使用不同的模型、服务地址、API Key、thinking 开关和并发上限；adapter 默认读取 `<cutmaster-root>/config.toml`。
+
+运行当前开发与回归任务 `task_034`：
 
 ```bash
 uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
-  --task-id task_001 \
-  --run-id cutmaster_benchmark \
-  --method-version backend-mvp \
+  --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
+  --task-id task_034 \
+  --run-id cutmaster_agentic_task034_v1 \
+  --method-version agentic-workflow-v1 \
   --overwrite
 ```
+
+必须从 Mashup-Benchmark 项目根目录执行上述命令。它会真实调用配置的 ASR、LLM 和 VLM API。可先运行 `uv run python scripts/run_cutmaster.py --list-tasks` 查看任务；`--task-id` 也支持一次传入多个 ID。
 
 批量运行全部任务：
 
@@ -284,8 +299,10 @@ uv run python scripts/run_cutmaster.py \
 uv run python scripts/run_cutmaster.py \
   --cutmaster-root /Users/xinfanchen/Project/CutMaster \
   --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
   --all \
-  --run-id cutmaster_benchmark
+  --run-id cutmaster_agentic_full \
+  --method-version agentic-workflow-v1
 ```
 
 CutMaster 特有参数和建议：
@@ -296,20 +313,30 @@ CutMaster 特有参数和建议：
 | `--cutmaster-python` | CutMaster 使用的 Python 解释器，推荐显式指向 `.venv/bin/python`。 |
 | `--cutmaster-config` | CutMaster TOML 配置；默认使用 `<cutmaster-root>/config.toml`。 |
 | `--subtitle-path` | 单任务运行时可显式复用 SRT；省略时真实调用 Fun-ASR。 |
-| `--method-version` | CutMaster 实验版本，例如 `backend-mvp`。 |
-| `--overwrite` | 重新生成已有 task 输出。调试 `task_001` 时建议使用。 |
+| `--method-version` | 写入 manifest 的 CutMaster 实验标签，例如 `agentic-workflow-v1`。 |
+| `--overwrite` | 重新生成 task 输出，但不会删除 CutMaster 的素材级分析缓存。开发和失败重跑时使用。 |
 
-CutMaster 中间结果直接保存在对应 task 的 benchmark artifacts 目录中：
+不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的规划与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/materials/` 不会删除。相同原片、字幕、分析模型和检测配置会复用完整素材分析；若上次只完成了部分阶段，也会复用 Shot 检测、字幕、Segment、Segment 视频以及每个已完成的 Shot VLM checkpoint。
+
+主要输出位置：
 
 ```text
+runs/<run_id>/task_outputs/<task_id>/output.mp4
+runs/<run_id>/task_outputs/<task_id>/run_output.json
+runs/<run_id>/task_outputs/<task_id>/logs/backend.log
 runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
+/Users/xinfanchen/Project/CutMaster/.cutmaster/materials/
 ```
+
+`artifacts/cutmaster/` 包含 `script_raw.json`、`script_adapted.json`、`candidate_pool.json`、`selection_diagnostics.json`、`planning_history.json`、`cutmaster.log` 和最终 `output.mp4` 等产物。素材分析缓存按视频保存而不是按 benchmark task 保存。终端日志按等级显示颜色；`logs/backend.log` 和 `artifacts/cutmaster/cutmaster.log` 保持无 ANSI 的纯文本。
 
 运行完成后可用以下命令校验并评测：
 
 ```bash
-uv run python scripts/validate_run.py runs/cutmaster_benchmark
-uv run python -m eval.run_evaluation --run runs/cutmaster_benchmark --config eval/config.yaml
+uv run python scripts/validate_run.py runs/cutmaster_agentic_task034_v1
+uv run python -m eval.run_evaluation \
+  --run runs/cutmaster_agentic_task034_v1 \
+  --config eval/config.yaml
 ```
 
 </details>
@@ -646,7 +673,14 @@ uv run python scripts/validate_run.py runs/<run_id>
 调用 CutMaster（our method），生成标准化 `runs/<run_id>/` 输出。
 
 ```bash
-uv run python scripts/run_cutmaster.py --cutmaster-root /path/to/CutMaster --task-id task_001 --run-id cutmaster_benchmark --method-version backend-mvp
+uv run python scripts/run_cutmaster.py \
+  --cutmaster-root /path/to/CutMaster \
+  --cutmaster-python /path/to/CutMaster/.venv/bin/python \
+  --cutmaster-config /path/to/CutMaster/config.toml \
+  --task-id task_034 \
+  --run-id cutmaster_agentic_task034_v1 \
+  --method-version agentic-workflow-v1 \
+  --overwrite
 ```
 
 #### `scripts/run_cutclaw.py`
