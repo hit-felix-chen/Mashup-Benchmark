@@ -269,8 +269,8 @@ Setup:
 ```bash
 cd /Users/xinfanchen/Project/CutMaster
 uv sync
-cp config.example.toml config.toml
-# Edit config.toml and configure [llm], [vlm], and [asr] separately.
+cp .env.example .env
+# Set DASHSCOPE_API_KEY in .env; edit workflow parameters directly in config.toml.
 
 cd /Users/xinfanchen/Project/Mashup-Benchmark
 uv sync

@@ -269,8 +269,8 @@ benchmark adapter `scripts/run_cutmaster.py` 负责把 benchmark task 转换为 
 ```bash
 cd /Users/xinfanchen/Project/CutMaster
 uv sync
-cp config.example.toml config.toml
-# 编辑 config.toml，分别配置 [llm]、[vlm] 和 [asr]
+cp .env.example .env
+# 在 .env 中设置 DASHSCOPE_API_KEY；工作流参数直接修改 config.toml
 
 cd /Users/xinfanchen/Project/Mashup-Benchmark
 uv sync
