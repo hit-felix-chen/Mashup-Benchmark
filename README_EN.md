@@ -260,9 +260,9 @@ Method-specific options are documented in each method section, such as CutMaster
 <details>
 <summary><strong>CutMaster (Our Method)</strong></summary>
 
-CutMaster is a backend-only agentic workflow for long-video music montages. The current version first builds a reusable structured source description: PySceneDetect extracts the complete Shot timeline, supplied SRT or DashScope Fun-ASR provides dialogue, an LLM groups continuous dialogue and monologue into Segments, and a VLM annotates each Shot from five sampled frames with visible action, scene, and character evidence. The Planner then performs Slot planning, candidate retrieval and pixel-grounded validation, Pairwise VLM continuity precomputation, strict source-chronology Beam Search, and candidate-pool-only script review. Finally, source windows are optimized around real visual cuts and FFmpeg assembles only hard-cut source fragments. No transition effects are generated; source audio is muted and only the requested BGM remains.
+CutMaster edits long-form video through its MASTER Editing Team. Material Analyst builds reusable Shot, Segment, dialogue, and story Material Memory; the ASTER team—Arrangement Architect, Story Editor, Timeline Scout, Edit Composer, and Revision Editor—then arranges pacing, anchors the story, builds a validated Candidate Space, performs lazy VLM transition scoring and Beam Search composition, and completes candidate-constrained revision. Source windows are finally optimized around real visual cuts and assembled as hard cuts with FFmpeg.
 
-The benchmark adapter, `scripts/run_cutmaster.py`, maps benchmark tasks to CutMaster CLI arguments and exports videos, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
+The benchmark adapter, `scripts/run_cutmaster.py`, uses an isolated worker to map each benchmark task to a `RunRequest`, directly calls the public `CutMaster(config).run(request)` entry point, and exports videos, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
 
 Setup:
 
@@ -287,7 +287,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
   --task-id task_034 \
   --run-id cutmaster_agentic_task034_v1 \
-  --method-version agentic-workflow-v1 \
+  --method-version master-team-v1 \
   --overwrite
 ```
 
@@ -302,7 +302,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
   --all \
   --run-id cutmaster_agentic_full \
-  --method-version agentic-workflow-v1
+  --method-version master-team-v1
 ```
 
 CutMaster-specific arguments and recommendations:
@@ -313,7 +313,7 @@ CutMaster-specific arguments and recommendations:
 | `--cutmaster-python` | Python executable used by CutMaster; explicitly pointing to `.venv/bin/python` is recommended. |
 | `--cutmaster-config` | CutMaster TOML config; defaults to `<cutmaster-root>/config.toml`. |
 | `--subtitle-path` | Explicitly reuse an SRT for a single task; if omitted, Fun-ASR is called. |
-| `--method-version` | CutMaster experiment label written to the manifest, such as `agentic-workflow-v1`. |
+| `--method-version` | CutMaster experiment label written to the manifest; defaults to `master-team-v1`. |
 | `--overwrite` | Regenerate task outputs without deleting CutMaster's source-analysis cache. Use for development and failed reruns. |
 
 Without `--overwrite`, a successful task with an existing `output.mp4` is skipped; failed or incomplete tasks are executed again. With `--overwrite`, task-level planning and rendering are rebuilt, but `.cutmaster/materials/` under the CutMaster project is preserved. Matching video, subtitle, analysis-model, and detection signatures reuse a complete source analysis. Interrupted analyses can also resume Shot detection, subtitle, Segment, Segment-video, and per-Shot VLM checkpoints.
@@ -653,7 +653,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /path/to/CutMaster/config.toml \
   --task-id task_034 \
   --run-id cutmaster_agentic_task034_v1 \
-  --method-version agentic-workflow-v1 \
+  --method-version master-team-v1 \
   --overwrite
 ```
 

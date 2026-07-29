@@ -22,6 +22,7 @@ DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 CUTMASTER_REPOSITORY_URL = "https://github.com/hit-cxf/CutMaster"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+CUTMASTER_WORKER_REL = Path("scripts/cutmaster_adapter_worker.py")
 
 
 def now_iso() -> str:
@@ -223,8 +224,9 @@ def run_task(
     write_json(artifacts_dir / "benchmark_task.json", task)
     started_at = now_iso()
     started = time.monotonic()
+    worker = benchmark_root / CUTMASTER_WORKER_REL
     command = [
-        str(python), "-m", "cutmaster", "run",
+        str(python), str(worker),
         "--video", str(video),
         "--audio", str(audio),
         "--prompt", task["task"]["prompt"],
@@ -334,7 +336,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--run-id", default="cutmaster_benchmark")
     parser.add_argument("--method", default="CutMaster")
-    parser.add_argument("--method-version", default="backend-mvp")
+    parser.add_argument("--method-version", default="master-team-v1")
     parser.add_argument("--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR.")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -349,6 +351,9 @@ def main() -> int:
     results_root = args.results_root.resolve()
     if not project_root.is_dir() or not python.exists() or not config.is_file():
         raise SystemExit(f"Invalid CutMaster setup: root={project_root}, python={python}, config={config}")
+    worker = benchmark_root / CUTMASTER_WORKER_REL
+    if not worker.is_file():
+        raise SystemExit(f"CutMaster adapter worker not found: {worker}")
     try:
         results_root.relative_to(benchmark_root)
     except ValueError as exc:
@@ -381,6 +386,8 @@ def main() -> int:
     adapter = {
         "name": "run_cutmaster",
         "script": "scripts/run_cutmaster.py",
+        "worker": CUTMASTER_WORKER_REL.as_posix(),
+        "entrypoint": "CutMaster(config).run(request)",
         "project_root": str(project_root),
         "python": str(python),
         "benchmark_root": str(benchmark_root),

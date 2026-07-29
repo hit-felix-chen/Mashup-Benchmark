@@ -260,9 +260,9 @@ uv run python scripts/export_specified_metrics_table.py \
 <details>
 <summary><strong>CutMaster（Our Method）</strong></summary>
 
-CutMaster 是后端独立的 agentic 长视频音乐混剪工作流。当前版本先对原片建立可跨 task 复用的结构化素材描述：PySceneDetect 提取完整 Shot 边界，给定 SRT 或 DashScope Fun-ASR 提供台词，LLM 按连续对话/独白构造 Segment，VLM 再用每个 Shot 的 5 张采样帧标注画面、场景和人物。Planner 随后依次完成 Slot 规划、候选检索与真实画面核验、Pairwise VLM 连续性预计算、严格原片时序 Beam Search 和候选池内脚本复核。最后对原片窗口进行切点优化，并用 FFmpeg 仅以原片片段硬切拼接；不生成转场特效，原片音频静音，只保留指定 BGM。
+CutMaster 通过 MASTER Editing Team 完成长视频音乐混剪：Material Analyst 建立可跨 task 复用的 Shot、Segment、台词和故事素材记忆；ASTER 团队中的 Arrangement Architect、Story Editor、Timeline Scout、Edit Composer 与 Revision Editor 随后依次完成节奏编排、故事锚定、候选空间构建、延迟 VLM 转场评分与 Beam Search 组接，以及候选空间内最终修订。最后对原片窗口进行切点优化，并用 FFmpeg 仅以原片片段硬切拼接。
 
-benchmark adapter `scripts/run_cutmaster.py` 负责把 benchmark task 转换为 CutMaster CLI 参数，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
+benchmark adapter `scripts/run_cutmaster.py` 通过隔离的 worker 把 benchmark task 转换为 `RunRequest`，直接调用公共入口 `CutMaster(config).run(request)`，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
 
 运行前准备：
 
@@ -287,7 +287,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
   --task-id task_034 \
   --run-id cutmaster_agentic_task034_v1 \
-  --method-version agentic-workflow-v1 \
+  --method-version master-team-v1 \
   --overwrite
 ```
 
@@ -302,7 +302,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
   --all \
   --run-id cutmaster_agentic_full \
-  --method-version agentic-workflow-v1
+  --method-version master-team-v1
 ```
 
 CutMaster 特有参数和建议：
@@ -313,7 +313,7 @@ CutMaster 特有参数和建议：
 | `--cutmaster-python` | CutMaster 使用的 Python 解释器，推荐显式指向 `.venv/bin/python`。 |
 | `--cutmaster-config` | CutMaster TOML 配置；默认使用 `<cutmaster-root>/config.toml`。 |
 | `--subtitle-path` | 单任务运行时可显式复用 SRT；省略时真实调用 Fun-ASR。 |
-| `--method-version` | 写入 manifest 的 CutMaster 实验标签，例如 `agentic-workflow-v1`。 |
+| `--method-version` | 写入 manifest 的 CutMaster 实验标签；默认是 `master-team-v1`。 |
 | `--overwrite` | 重新生成 task 输出，但不会删除 CutMaster 的素材级分析缓存。开发和失败重跑时使用。 |
 
 不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的规划与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/materials/` 不会删除。相同原片、字幕、分析模型和检测配置会复用完整素材分析；若上次只完成了部分阶段，也会复用 Shot 检测、字幕、Segment、Segment 视频以及每个已完成的 Shot VLM checkpoint。
@@ -679,7 +679,7 @@ uv run python scripts/run_cutmaster.py \
   --cutmaster-config /path/to/CutMaster/config.toml \
   --task-id task_034 \
   --run-id cutmaster_agentic_task034_v1 \
-  --method-version agentic-workflow-v1 \
+  --method-version master-team-v1 \
   --overwrite
 ```
 
