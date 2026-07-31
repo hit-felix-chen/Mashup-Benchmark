@@ -190,7 +190,7 @@ Raw VLM-as-judge scores for `IF/VQ/TC/NC` and the human `OQ` score use a 1-5 Lik
 Metrics:
 
 - IF: Instruction Following.
-- BCS: Beat-Cut Synchronization; uses PySceneDetect AdaptiveDetector for full-frame adaptive cut detection on the final rendered video, without reading the edit timeline.
+- BCS: Beat-Cut Synchronization; PySceneDetect AdaptiveDetector first proposes high-recall cut candidates on the final rendered video, then a VLM classifies each adjacent before/after frame pair and only confirmed cuts are compared with beats. The edit timeline is not read.
 - AEC: Audio-Visual Energy Correspondence.
 - VQ: Visual Quality.
 - TC: Transition Continuity.
@@ -314,6 +314,7 @@ CutMaster-specific arguments and recommendations:
 | `--cutmaster-config` | CutMaster TOML config; defaults to `<cutmaster-root>/config.toml`. |
 | `--subtitle-path` | Explicitly reuse an SRT for a single task; if omitted, Fun-ASR is called. |
 | `--method-version` | CutMaster experiment label written to the manifest; defaults to `master-team-v1`. |
+| `--dialogue-audio` | Include selected original-dialogue anchors in benchmark output. Disabled by default, so a full run directly produces the standard AAC BGM-only evaluation version. |
 | `--overwrite` | Regenerate task outputs without deleting CutMaster's source-analysis cache. Use for development and failed reruns. |
 
 Without `--overwrite`, a successful task with an existing `output.mp4` is skipped; failed or incomplete tasks are executed again. With `--overwrite`, task-level planning and rendering are rebuilt, but `.cutmaster/materials/` under the CutMaster project is preserved. Matching video, subtitle, analysis-model, and detection signatures reuse a complete source analysis. Interrupted analyses can also resume Shot detection, subtitle, Segment, Segment-video, and per-Shot VLM checkpoints.

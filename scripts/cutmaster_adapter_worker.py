@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt-type", required=True)
     parser.add_argument("--video-title", default="")
     parser.add_argument("--max-clip-duration", type=float)
+    parser.add_argument(
+        "--dialogue-audio",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Include original-dialogue anchors in the final audio mix.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -57,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         video_title=args.video_title,
         subtitle_path=args.subtitle.resolve() if args.subtitle else None,
         max_clip_duration_sec=args.max_clip_duration,
+        include_dialogue_audio=args.dialogue_audio,
         overwrite=args.overwrite,
     )
     try:
@@ -77,4 +84,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

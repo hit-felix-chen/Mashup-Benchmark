@@ -29,10 +29,14 @@ automatic_metrics:
   # AEC motion-energy sampling.
   video_sample_fps: 2.0
   audio_window_sec: 0.5
-  # BCS full-frame adaptive cut detection on the final rendered video.
+  # BCS first proposes cuts with full-frame adaptive detection, then sends the
+  # adjacent frame pair at every candidate to the VLM for binary validation.
   adaptive_threshold: 2.0
   adaptive_min_content_val: 15.0
   adaptive_min_scene_len: 5  # frames
+  bcs_cut_vlm_max_concurrency: 10
+  bcs_cut_vlm_frame_width: 640
+  bcs_cut_vlm_enable_thinking: false
   beat_window_sec: 0.05
   # Exponential BCS tau. exp(-0.10 / 0.196) ~= 0.60, so a 100ms offset is a passing cut.
   bcs_tau_sec: 0.196

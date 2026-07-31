@@ -190,7 +190,7 @@ VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Li
 指标含义：
 
 - IF：Instruction Following，指令遵循。
-- BCS：Beat-Cut Synchronization，节拍-切点同步；使用 PySceneDetect AdaptiveDetector 对最终成片进行全帧自适应切点检测，不读取编辑 timeline。
+- BCS：Beat-Cut Synchronization，节拍-切点同步；先使用 PySceneDetect AdaptiveDetector 对最终成片生成高召回切点候选，再由 VLM 对每个候选的相邻前后帧进行二分类，仅用确认切点计算节拍距离，不读取编辑 timeline。
 - AEC：Audio-Visual Energy Correspondence，音画能量对应。
 - VQ：Visual Quality，视觉质量。
 - TC：Transition Continuity，片段和转场连续性。
@@ -314,6 +314,7 @@ CutMaster 特有参数和建议：
 | `--cutmaster-config` | CutMaster TOML 配置；默认使用 `<cutmaster-root>/config.toml`。 |
 | `--subtitle-path` | 单任务运行时可显式复用 SRT；省略时真实调用 Fun-ASR。 |
 | `--method-version` | 写入 manifest 的 CutMaster 实验标签；默认是 `master-team-v1`。 |
+| `--dialogue-audio` | 在评测成片中加入选中的原声锚点；默认关闭，因此正常完整运行会直接输出标准 AAC 纯 BGM 版本。 |
 | `--overwrite` | 重新生成 task 输出，但不会删除 CutMaster 的素材级分析缓存。开发和失败重跑时使用。 |
 
 不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的规划与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/materials/` 不会删除。相同原片、字幕、分析模型和检测配置会复用完整素材分析；若上次只完成了部分阶段，也会复用 Shot 检测、字幕、Segment、Segment 视频以及每个已完成的 Shot VLM checkpoint。
@@ -738,6 +739,16 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 
 默认并发数为 10，可通过 `--concurrency <N>` 调整；输出文件仍按 task 原始顺序写入。
 
+专用指标也支持在已有结果上局部追加或重评，并默认原地覆盖：
+
+```bash
+uv run python -m eval.run_specified_metrics \
+  --run runs/cutmaster_agentic_v1 \
+  --config eval/config.yaml \
+  --reuse-specified-metrics-id <existing_specified_metrics_id> \
+  --task-id task_037,task_038,task_039
+```
+
 支持基于已有评测结果做局部重评。`--task-ids` 指定任务，`--metrics` 指定重算指标，未选中的任务和指标从 `--reuse-eval-id` 对应结果复用；`Quality` 始终根据合并后的指标重新计算：
 
 ```bash
@@ -748,6 +759,9 @@ uv run python -m eval.run_evaluation \
   --task-id task_022 \
   --metrics BCS
 ```
+
+局部重评默认直接覆盖 `--reuse-eval-id` 对应的原评测目录，不再创建新的时间戳目录。
+只有显式传入不同的 `--eval-id` 时，才会把合并结果保存为另一份评测。
 
 `--task-id`（别名 `--task-ids`）和 `--metrics` 均支持逗号分隔或重复传入。可选指标为 `BCS/AEC/IF/VQ/TC/NC/OQ`；VLM 指标即使只重评其中一项，也会完成一次联合 VLM 请求，但只覆盖指定字段。
 

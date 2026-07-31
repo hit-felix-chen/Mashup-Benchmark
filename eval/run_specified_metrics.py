@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,38 @@ from eval.config import load_config
 from eval.evaluators.specified_metrics_judge import SpecifiedMetricsJudge
 from eval.evaluators.vlm_judge import VLMJudgeSkipped
 from eval.run_evaluation import ROOT, load_run_records, load_tasks, write_json
+
+
+def parse_csv_args(values: list[str] | None) -> list[str]:
+    parsed: list[str] = []
+    for value in values or []:
+        for item in value.split(","):
+            item = item.strip()
+            if item:
+                parsed.append(item)
+    return list(dict.fromkeys(parsed))
+
+
+def load_specified_metric_records(
+    specified_metrics_id: str,
+) -> dict[str, dict[str, Any]]:
+    path = (
+        ROOT
+        / "eval_results"
+        / specified_metrics_id
+        / "specified_metric_scores.jsonl"
+    )
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Reusable specified-metrics scores not found: {path}"
+        )
+    records: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as file:
+        for line in file:
+            if line.strip():
+                row = json.loads(line)
+                records[row["task_id"]] = row
+    return records
 
 
 def summarize_specified_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -64,6 +97,25 @@ def main() -> int:
     parser.add_argument("--specified-metrics-id", default=None, help="Specified-metrics id. Defaults to <run_id>_specified_metrics_<timestamp>.")
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N records for smoke tests.")
     parser.add_argument("--concurrency", type=int, default=10, help="Number of tasks to evaluate concurrently.")
+    parser.add_argument(
+        "--task-id",
+        "--task-ids",
+        dest="task_ids",
+        action="append",
+        default=None,
+        help=(
+            "Only reevaluate these task ids. Accepts comma-separated values or "
+            "repeated arguments."
+        ),
+    )
+    parser.add_argument(
+        "--reuse-specified-metrics-id",
+        default=None,
+        help=(
+            "Reuse unselected tasks from an existing specified-metrics result. "
+            "Unless --specified-metrics-id differs, that result is overwritten."
+        ),
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run)
@@ -71,7 +123,11 @@ def main() -> int:
         run_dir = ROOT / run_dir
     run_id = run_dir.name
     timestamp = datetime.now(UTC).astimezone().strftime("%Y%m%d_%H%M%S")
-    specified_metrics_id = args.specified_metrics_id or f"{run_id}_specified_metrics_{timestamp}"
+    specified_metrics_id = (
+        args.specified_metrics_id
+        or args.reuse_specified_metrics_id
+        or f"{run_id}_specified_metrics_{timestamp}"
+    )
     specified_metrics_dir = ROOT / "eval_results" / specified_metrics_id
 
     config = load_config(args.config, require_vlm=True)
@@ -80,12 +136,41 @@ def main() -> int:
     if args.limit is not None:
         run_records = run_records[: args.limit]
 
+    requested_task_ids = set(parse_csv_args(args.task_ids))
+    if requested_task_ids and not args.reuse_specified_metrics_id:
+        parser.error(
+            "--reuse-specified-metrics-id is required with --task-ids."
+        )
+    run_task_ids = {record["task_id"] for record in run_records}
+    missing_task_ids = sorted(requested_task_ids - run_task_ids)
+    if missing_task_ids:
+        parser.error(f"Task ids not found in run: {', '.join(missing_task_ids)}")
+    reevaluate_task_ids = requested_task_ids or run_task_ids
+    reused_records = (
+        load_specified_metric_records(args.reuse_specified_metrics_id)
+        if args.reuse_specified_metrics_id
+        else {}
+    )
+    missing_reused = sorted(
+        run_task_ids - reevaluate_task_ids - set(reused_records)
+    )
+    if missing_reused:
+        parser.error(
+            f"Reusable specified-metrics result "
+            f"{args.reuse_specified_metrics_id} is missing tasks: "
+            f"{', '.join(missing_reused)}"
+        )
+
     total_records = len(run_records)
     concurrency = max(1, int(args.concurrency or 1))
 
     def evaluate_one(idx: int, record: dict[str, Any]) -> tuple[int, dict[str, Any], str | None]:
         task_id = record["task_id"]
         task = tasks[task_id]
+        if task_id not in reevaluate_task_ids:
+            output = copy.deepcopy(reused_records[task_id])
+            output["specified_metrics_id"] = specified_metrics_id
+            return idx, output, f"[{idx}/{total_records}] reused {task_id}"
         output: dict[str, Any] = {
             "specified_metrics_id": specified_metrics_id,
             "run_id": run_id,
@@ -188,6 +273,10 @@ def main() -> int:
         "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
         "specified_metric_scores": str(scores_path.relative_to(ROOT)),
         "created_at": datetime.now(UTC).astimezone().isoformat(),
+        "reuse_specified_metrics_id": args.reuse_specified_metrics_id,
+        "reevaluated_task_ids": (
+            sorted(reevaluate_task_ids) if requested_task_ids else None
+        ),
     })
     write_json(specified_metrics_dir / "specified_metric_summary.json", summary)
     print(f"Wrote {scores_path}")

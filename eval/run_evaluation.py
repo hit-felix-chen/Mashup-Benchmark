@@ -12,6 +12,7 @@ from typing import Any
 
 from eval.aggregate_scores import compute_quality, normalize_score_for_quality, summarize
 from eval.config import load_config
+from eval.evaluators.cut_boundary_validator import CutBoundaryValidator
 from eval.evaluators.vlm_judge import VLMJudge, VLMJudgeSkipped
 from eval.metrics.alignment import audio_visual_energy_correspondence, beat_cut_synchronization
 
@@ -74,7 +75,11 @@ def main() -> int:
     parser.add_argument("--run", required=True, help="Path to runs/<run_id>.")
     parser.add_argument("--config", default="eval/config.yaml", help="Path to evaluator config YAML.")
     parser.add_argument("--eval-id", default=None, help="Evaluation id. Defaults to <run_id>_eval_<timestamp>.")
-    parser.add_argument("--skip-vlm", action="store_true", help="Only compute automatic BCS/AEC metrics.")
+    parser.add_argument(
+        "--skip-vlm",
+        action="store_true",
+        help=("Skip holistic VLM judge metrics IF/VQ/TC/NC. BCS still uses VLM cut validation."),
+    )
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N records for smoke tests.")
     parser.add_argument("--concurrency", type=int, default=10, help="Number of tasks to evaluate concurrently.")
     parser.add_argument(
@@ -103,7 +108,7 @@ def main() -> int:
         run_dir = ROOT / run_dir
     run_id = run_dir.name
     timestamp = datetime.now(UTC).astimezone().strftime("%Y%m%d_%H%M%S")
-    eval_id = args.eval_id or f"{run_id}_eval_{timestamp}"
+    eval_id = args.eval_id or args.reuse_eval_id or f"{run_id}_eval_{timestamp}"
     eval_dir = ROOT / "eval_results" / eval_id
 
     requested_task_ids = set(parse_csv_args(args.task_ids))
@@ -124,9 +129,19 @@ def main() -> int:
     else:
         selected_metrics = set(BASE_METRICS)
 
-    require_vlm = bool(selected_metrics & VLM_METRICS) and not args.skip_vlm
+    require_vlm = bool(("BCS" in selected_metrics) or (selected_metrics & VLM_METRICS and not args.skip_vlm))
     config = load_config(args.config, require_vlm=require_vlm)
     auto_cfg = config.get("automatic_metrics", {})
+    cut_validator = (
+        CutBoundaryValidator(
+            config,
+            max_concurrency=int(auto_cfg.get("bcs_cut_vlm_max_concurrency", 10)),
+            frame_width=int(auto_cfg.get("bcs_cut_vlm_frame_width", 640)),
+            enable_thinking=bool(auto_cfg.get("bcs_cut_vlm_enable_thinking", False)),
+        )
+        if "BCS" in selected_metrics
+        else None
+    )
     tasks = load_tasks()
     run_records = load_run_records(run_dir)
     if args.limit is not None:
@@ -137,17 +152,14 @@ def main() -> int:
     if missing_task_ids:
         parser.error(f"Task ids not found in run: {', '.join(missing_task_ids)}")
 
+    reevaluate_task_ids = requested_task_ids or run_task_ids
     reused_records = load_evaluation_records(args.reuse_eval_id) if args.reuse_eval_id else {}
     if args.reuse_eval_id:
-        missing_reused = sorted(run_task_ids - set(reused_records))
+        missing_reused = sorted(run_task_ids - reevaluate_task_ids - set(reused_records))
         if missing_reused:
-            parser.error(
-                f"Reusable evaluation {args.reuse_eval_id} is missing tasks: "
-                f"{', '.join(missing_reused)}"
-            )
+            parser.error(f"Reusable evaluation {args.reuse_eval_id} is missing tasks: {', '.join(missing_reused)}")
 
     total_records = len(run_records)
-    reevaluate_task_ids = requested_task_ids or run_task_ids
     concurrency = max(1, int(args.concurrency or 1))
 
     def evaluate_one(idx: int, record: dict[str, Any]) -> tuple[int, dict[str, Any], str | None]:
@@ -185,6 +197,7 @@ def main() -> int:
         if "BCS" in selected_metrics:
             bcs = beat_cut_synchronization(
                 output_video,
+                cut_validator=cut_validator,
                 adaptive_threshold=float(auto_cfg.get("adaptive_threshold", 2.0)),
                 adaptive_min_content_val=float(auto_cfg.get("adaptive_min_content_val", 15.0)),
                 adaptive_min_scene_len=int(auto_cfg.get("adaptive_min_scene_len", 5)),
@@ -248,10 +261,7 @@ def main() -> int:
                     "request_id": exc.request_id,
                     "message": exc.message,
                 }
-                message = (
-                    f"[{idx}/{total_records}] evaluated {task_id} "
-                    f"(VLM skipped: {exc.failure_type})"
-                )
+                message = f"[{idx}/{total_records}] evaluated {task_id} (VLM skipped: {exc.failure_type})"
             else:
                 for metric in selected_vlm_metrics:
                     value = vlm_result["scores"][metric]
@@ -285,20 +295,24 @@ def main() -> int:
 
     indexed_records = list(enumerate(run_records, 1))
     outputs_by_index: dict[int, dict[str, Any]] = {}
-    if concurrency == 1:
-        for idx, record in indexed_records:
-            result_idx, score_record, message = evaluate_one(idx, record)
-            outputs_by_index[result_idx] = score_record
-            if message:
-                print(message)
-    else:
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [executor.submit(evaluate_one, idx, record) for idx, record in indexed_records]
-            for future in as_completed(futures):
-                result_idx, score_record, message = future.result()
+    try:
+        if concurrency == 1:
+            for idx, record in indexed_records:
+                result_idx, score_record, message = evaluate_one(idx, record)
                 outputs_by_index[result_idx] = score_record
                 if message:
                     print(message)
+        else:
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [executor.submit(evaluate_one, idx, record) for idx, record in indexed_records]
+                for future in as_completed(futures):
+                    result_idx, score_record, message = future.result()
+                    outputs_by_index[result_idx] = score_record
+                    if message:
+                        print(message)
+    finally:
+        if cut_validator is not None:
+            cut_validator.close()
 
     outputs = [outputs_by_index[idx] for idx, _record in indexed_records]
 
@@ -308,27 +322,25 @@ def main() -> int:
         for row in outputs:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     summary = summarize(outputs)
-    vlm_skips = [
-        (row.get("judge") or {})
-        for row in outputs
-        if (row.get("judge") or {}).get("status") == "skipped"
-    ]
+    vlm_skips = [(row.get("judge") or {}) for row in outputs if (row.get("judge") or {}).get("status") == "skipped"]
     if vlm_skips:
         summary["vlm_judge"] = {
             "skipped_count": len(vlm_skips),
             "skip_reasons": dict(Counter(skip.get("failure_type") or "unknown" for skip in vlm_skips)),
         }
-    summary.update({
-        "eval_id": eval_id,
-        "run_id": run_id,
-        "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
-        "evaluation_scores": str(scores_path.relative_to(ROOT)),
-        "created_at": datetime.now(UTC).astimezone().isoformat(),
-        "skip_vlm": args.skip_vlm,
-        "reuse_eval_id": args.reuse_eval_id,
-        "reevaluated_task_ids": sorted(reevaluate_task_ids) if is_partial else None,
-        "reevaluated_metrics": sorted(selected_metrics) if is_partial else None,
-    })
+    summary.update(
+        {
+            "eval_id": eval_id,
+            "run_id": run_id,
+            "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
+            "evaluation_scores": str(scores_path.relative_to(ROOT)),
+            "created_at": datetime.now(UTC).astimezone().isoformat(),
+            "skip_vlm": args.skip_vlm,
+            "reuse_eval_id": args.reuse_eval_id,
+            "reevaluated_task_ids": sorted(reevaluate_task_ids) if is_partial else None,
+            "reevaluated_metrics": sorted(selected_metrics) if is_partial else None,
+        }
+    )
     write_json(eval_dir / "summary.json", summary)
     print(f"Wrote {scores_path}")
     print(f"Wrote {eval_dir / 'summary.json'}")

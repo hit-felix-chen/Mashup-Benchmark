@@ -238,9 +238,7 @@ class VLMJudge:
             except (urllib.error.URLError, TimeoutError, ConnectionResetError, BrokenPipeError) as exc:
                 last_error = exc
                 if attempt >= self.max_retries:
-                    raise RuntimeError(
-                        f"VLM request failed after {self.max_retries} attempts: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {exc}") from exc
                 print(
                     f"[VLMJudge] Network error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
                     flush=True,
@@ -248,17 +246,26 @@ class VLMJudge:
             time.sleep(self.retry_backoff_sec * attempt)
         raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {last_error}")
 
-    def _post_multimodal_conversation(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    def _post_multimodal_conversation(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        enable_thinking: bool | None = None,
+    ) -> dict[str, Any]:
         dashscope.base_http_api_url = self._dashscope_base_url()
         retryable_http_codes = {408, 409, 429, 500, 502, 503, 504}
         last_error: BaseException | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
+                request_options: dict[str, Any] = {}
+                if enable_thinking is not None:
+                    request_options["enable_thinking"] = enable_thinking
                 response = MultiModalConversation.call(
                     api_key=self.api_key,
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
+                    **request_options,
                 )
                 if response.status_code == HTTPStatus.OK:
                     content = response.output.choices[0].message.content
@@ -293,9 +300,7 @@ class VLMJudge:
                     raise
                 last_error = exc
                 if attempt >= self.max_retries:
-                    raise RuntimeError(
-                        f"VLM request failed after {self.max_retries} attempts: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {exc}") from exc
                 print(
                     f"[VLMJudge] DashScope SDK error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
                     flush=True,
@@ -304,15 +309,67 @@ class VLMJudge:
             except Exception as exc:
                 last_error = exc
                 if attempt >= self.max_retries:
-                    raise RuntimeError(
-                        f"VLM request failed after {self.max_retries} attempts: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {exc}") from exc
                 print(
                     f"[VLMJudge] DashScope SDK error on attempt {attempt}/{self.max_retries}: {exc}; retrying...",
                     flush=True,
                 )
                 time.sleep(self.retry_backoff_sec * attempt)
         raise RuntimeError(f"VLM request failed after {self.max_retries} attempts: {last_error}")
+
+    def request_image_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        image_data_urls: list[str],
+        enable_thinking: bool | None = None,
+    ) -> dict[str, Any]:
+        if not image_data_urls:
+            raise ValueError("At least one image is required")
+        if self.provider == "dashscope":
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        *({"image": data_url} for data_url in image_data_urls),
+                        {"text": user_prompt},
+                    ],
+                },
+            ]
+            raw = self._post_multimodal_conversation(
+                messages,
+                enable_thinking=enable_thinking,
+            )
+        else:
+            content: list[dict[str, Any]] = [
+                {"type": "text", "text": user_prompt},
+                *(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
+                    }
+                    for data_url in image_data_urls
+                ),
+            ]
+            payload = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+            }
+            if enable_thinking is not None:
+                payload["enable_thinking"] = enable_thinking
+            raw = self._post_chat_completion(payload)
+        content_text = raw["choices"][0]["message"]["content"]
+        return {
+            "parsed": _extract_json(content_text),
+            "usage": raw.get("usage"),
+            "request_id": raw.get("request_id"),
+        }
 
     def score(self, output_video: Path, task: dict[str, Any], run_record: dict[str, Any]) -> dict[str, Any]:
         video_size_bytes = output_video.stat().st_size

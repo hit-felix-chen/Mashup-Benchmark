@@ -203,6 +203,7 @@ def run_task(
     method_version: str,
     overwrite: bool,
     subtitle: Path | None,
+    dialogue_audio: bool,
 ) -> dict[str, Any]:
     task_id = task["id"]
     task_dir = run_dir / "task_outputs" / task_id
@@ -236,6 +237,7 @@ def run_task(
         "--target-shot-length", str(task["task"]["target_shot_length_sec"]),
         "--prompt-type", task["task"]["type"],
         "--video-title", task["video"].get("title_zh") or task["video"].get("title_en") or "",
+        "--dialogue-audio" if dialogue_audio else "--no-dialogue-audio",
     ]
     if subtitle:
         command += ["--subtitle", str(subtitle)]
@@ -280,6 +282,9 @@ def run_task(
         "config": {
             "cutmaster_config": str(config),
             "subtitle_source": str(subtitle) if subtitle else "dashscope_fun_asr",
+            "dialogue_audio_included": bool(
+                result.get("dialogue_audio_included", dialogue_audio)
+            ),
             "stage_timings_sec": result.get("stage_timings_sec", {}),
             "num_raw_clips": result.get("num_raw_clips"),
             "num_adapted_clips": result.get("num_adapted_clips"),
@@ -339,6 +344,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--method-version", default="master-team-v1")
     parser.add_argument("--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR.")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--dialogue-audio",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Include selected original-dialogue anchors. "
+            "The default benchmark output is BGM-only."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -400,6 +414,7 @@ def main() -> int:
             "overwrite": bool(args.overwrite),
             "config": str(config),
             "subtitle_path": str(subtitle) if subtitle else None,
+            "dialogue_audio": bool(args.dialogue_audio),
         },
     }
     failures = 0
@@ -419,6 +434,7 @@ def main() -> int:
                 method_version=args.method_version,
                 overwrite=args.overwrite,
                 subtitle=subtitle,
+                dialogue_audio=args.dialogue_audio,
             )
         except Exception as exc:
             failures += 1

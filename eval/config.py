@@ -94,6 +94,9 @@ def load_config(path: str | Path | None = None, require_vlm: bool = True) -> dic
     data["automatic_metrics"].setdefault("adaptive_threshold", 2.0)
     data["automatic_metrics"].setdefault("adaptive_min_content_val", 15.0)
     data["automatic_metrics"].setdefault("adaptive_min_scene_len", 5)
+    data["automatic_metrics"].setdefault("bcs_cut_vlm_max_concurrency", 10)
+    data["automatic_metrics"].setdefault("bcs_cut_vlm_frame_width", 640)
+    data["automatic_metrics"].setdefault("bcs_cut_vlm_enable_thinking", False)
     data["automatic_metrics"].setdefault("beat_window_sec", 0.05)
     data["automatic_metrics"].setdefault("bcs_tau_sec", 0.196)
     return data

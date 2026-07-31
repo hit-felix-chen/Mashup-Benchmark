@@ -17,6 +17,7 @@ from eval.media import (
 def beat_cut_synchronization(
     output_video: Path,
     *,
+    cut_validator: Any,
     adaptive_threshold: float = 2.0,
     adaptive_min_content_val: float = 15.0,
     adaptive_min_scene_len: int = 5,
@@ -26,12 +27,14 @@ def beat_cut_synchronization(
     librosa_hop_length: int = 512,
     tau_sec: float = 0.196,
 ) -> dict[str, Any]:
-    cuts = detect_visual_cuts(
+    candidate_cuts = detect_visual_cuts(
         output_video,
         adaptive_threshold=adaptive_threshold,
         adaptive_min_content_val=adaptive_min_content_val,
         adaptive_min_scene_len=adaptive_min_scene_len,
     )
+    validation = cut_validator.validate(output_video, candidate_cuts)
+    cuts = validation["cuts"]
     if beat_detector == "rms_peak":
         beats = detect_audio_beats(output_video, window_sec=beat_window_sec)
         beat_detection = "rms_local_peak"
@@ -49,6 +52,7 @@ def beat_cut_synchronization(
         return {
             "score": 0.0,
             "cut_detection": "pyscenedetect_adaptive_full_frame",
+            "cut_validation": "vlm_binary_adjacent_frames",
             "beat_detection": beat_detection,
             "adaptive_threshold": adaptive_threshold,
             "adaptive_min_content_val": adaptive_min_content_val,
@@ -57,7 +61,18 @@ def beat_cut_synchronization(
             "beat_window_sec": beat_window_sec,
             "librosa_sample_rate": librosa_sample_rate,
             "librosa_hop_length": librosa_hop_length,
+            "num_candidate_cuts": len(candidate_cuts),
             "num_cuts": len(cuts),
+            "cut_candidates": validation["candidates"],
+            "cut_validator": {
+                "model": validation["model"],
+                "provider": validation["provider"],
+                "fps": validation.get("fps"),
+                "frame_sampling": validation.get("frame_sampling"),
+                "classification": validation.get("classification"),
+                "enable_thinking": validation.get("enable_thinking"),
+                "usage": validation.get("usage"),
+            },
             "num_beats": len(beats),
             "mean_nearest_beat_distance_sec": None,
             "details": "No cuts or beats detected.",
@@ -67,6 +82,7 @@ def beat_cut_synchronization(
     return {
         "score": max(0.0, min(100.0, raw * 100.0)),
         "cut_detection": "pyscenedetect_adaptive_full_frame",
+        "cut_validation": "vlm_binary_adjacent_frames",
         "beat_detection": beat_detection,
         "adaptive_threshold": adaptive_threshold,
         "adaptive_min_content_val": adaptive_min_content_val,
@@ -75,13 +91,26 @@ def beat_cut_synchronization(
         "beat_window_sec": beat_window_sec,
         "librosa_sample_rate": librosa_sample_rate,
         "librosa_hop_length": librosa_hop_length,
+        "num_candidate_cuts": len(candidate_cuts),
         "num_cuts": len(cuts),
+        "cut_candidates": validation["candidates"],
+        "cut_validator": {
+            "model": validation["model"],
+            "provider": validation["provider"],
+            "fps": validation.get("fps"),
+            "frame_sampling": validation.get("frame_sampling"),
+            "classification": validation.get("classification"),
+            "enable_thinking": validation.get("enable_thinking"),
+            "usage": validation.get("usage"),
+        },
         "num_beats": len(beats),
         "mean_nearest_beat_distance_sec": sum(distances) / len(distances),
     }
 
 
-def audio_visual_energy_correspondence(output_video: Path, *, video_fps: float = 2.0, audio_window_sec: float = 0.5) -> dict[str, Any]:
+def audio_visual_energy_correspondence(
+    output_video: Path, *, video_fps: float = 2.0, audio_window_sec: float = 0.5
+) -> dict[str, Any]:
     visual = video_motion_series(output_video, fps=video_fps)
     audio = audio_rms_series(output_video, window_sec=audio_window_sec)
     corr = pearson(visual, audio)

@@ -7,7 +7,9 @@ This package evaluates submitted runs under `runs/<run_id>/`.
 Cross-modal alignment:
 
 - `IF`: instruction following, scored by VLM-as-judge.
-- `BCS`: beat-cut synchronization, computed from PySceneDetect adaptive full-frame cut detection on the final rendered video and audio beat peaks.
+- `BCS`: beat-cut synchronization. PySceneDetect proposes full-frame cut
+  candidates, a VLM classifies each adjacent before/after frame pair as cut or
+  non-cut, and only confirmed cuts are compared with audio beat peaks.
 - `AEC`: audio-visual energy correspondence, computed from visual motion and audio RMS correlation.
 
 Single-modal quality:
@@ -49,7 +51,10 @@ eval_results/<specified_metrics_id>/specified_metric_summary.json
 
 ## Configure VLM Judge
 
-The VLM judge sends the final rendered `output.mp4` directly to the configured model as a video input. It does not sample still frames for VLM scoring.
+The holistic VLM judge sends the final rendered `output.mp4` directly to the
+configured model as a video input. BCS separately sends two adjacent still
+frames for every PySceneDetect cut candidate and requests a strict binary
+`is_cut` classification.
 
 By default, `vlm.provider: dashscope` uses the DashScope SDK and passes the local rendered video as a `file://` input. The SDK uploads the video before calling the model, which avoids sending a large base64 video inside a single JSON request. Set `vlm.provider: openai_compatible` only when you explicitly want to use the OpenAI-compatible HTTP endpoint and base64 data URLs.
 
@@ -80,7 +85,8 @@ uv run python -m eval.run_evaluation \
   --metrics BCS
 ```
 
-Smoke-test automatic metrics only:
+Run without the holistic IF/VQ/TC/NC judge. BCS still requires the configured
+VLM for cut validation:
 
 ```bash
 uv run python -m eval.run_evaluation --run runs/<run_id> --skip-vlm --limit 1
