@@ -18,11 +18,14 @@ Single-modal quality:
 - `TC`: transition continuity, scored by VLM-as-judge.
 - `NC`: narrative coherence, scored by VLM-as-judge.
 
-Human preference:
+The automatic `Quality` score uses `BCS=0.25`, `AEC=0.25`, and
+`IF/VQ/TC/NC=0.125` each. VLM scores are stored as raw 1-5 Likert scores and
+converted with `(score - 1) / 4 * 100` for `Quality`. If an automatic metric is
+missing, the evaluator renormalizes over the remaining automatic metrics.
 
-- `OQ`: optional 1-5 Likert overall quality rating from human evaluation.
-
-Default seven-metric weights are `BCS=0.20`, `AEC=0.20`, `OQ=0.20`, and `IF/VQ/TC/NC=0.10` each. VLM scores and human `OQ` are stored as raw 1-5 Likert scores; for `Quality`, they are converted with `(score - 1) / 4 * 100`. If `OQ` or any other metric is missing, the evaluator renormalizes over available metrics.
+Human `OQ` ratings are stored and analyzed by a separate human-evaluation
+workflow. They are never copied into automatic evaluation records or included
+in `Quality`.
 
 
 ## Specified Metrics

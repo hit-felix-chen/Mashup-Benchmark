@@ -116,6 +116,12 @@ def main(argv):
         if missing:
             errors.append(f"record {i}: missing keys {sorted(missing)}")
             continue
+        embedded_human_fields = [field for field in ("human_scores", "scores") if field in record]
+        if embedded_human_fields:
+            errors.append(
+                f"record {i}: human ratings must be stored separately from run outputs; "
+                f"remove fields {embedded_human_fields}"
+            )
         task_id = record["task_id"]
         if task_id in seen:
             errors.append(f"record {i}: duplicate task_id {task_id}")

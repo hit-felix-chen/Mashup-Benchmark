@@ -172,20 +172,19 @@ Media decoding and automatic metrics rely on the system commands `ffmpeg` and `f
 
 ### General Metrics
 
-The full quality score uses 7 metrics:
+The automatic `Quality` score uses six metrics:
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
+Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
 ```
 
 Weighting policy:
 
-- Local automatic metrics: `BCS = 0.20`, `AEC = 0.20`.
-- VLM-as-judge metrics: `IF = 0.10`, `VQ = 0.10`, `TC = 0.10`, `NC = 0.10`.
-- Human evaluation metric: `OQ = 0.20`.
-- If human `OQ` is unavailable, the available 6 metrics are automatically renormalized: `BCS = 0.25`, `AEC = 0.25`, and `IF/VQ/TC/NC = 0.125`.
+- Local automatic metrics: `BCS = 0.25`, `AEC = 0.25`.
+- VLM-as-judge metrics: `IF = 0.125`, `VQ = 0.125`, `TC = 0.125`, `NC = 0.125`.
+- If an automatic metric is missing, weights are renormalized over the remaining automatic metrics only.
 
-Raw VLM-as-judge scores for `IF/VQ/TC/NC` and the human `OQ` score use a 1-5 Likert scale. For `Quality`, they are converted to the 0-100 scale with `(score - 1) / 4 * 100`.
+Raw VLM-as-judge scores for `IF/VQ/TC/NC` use a 1-5 Likert scale. For `Quality`, they are converted to the 0-100 scale with `(score - 1) / 4 * 100`.
 
 Metrics:
 
@@ -195,7 +194,7 @@ Metrics:
 - VQ: Visual Quality.
 - TC: Transition Continuity.
 - NC: Narrative Coherence.
-- OQ: Overall Quality, optional human rating on a 1-5 Likert scale.
+- OQ: Overall Quality, a human rating stored and analyzed by a separate human-evaluation workflow; it is never written to automatic evaluation results or included in `Quality`.
 
 
 ### Specified Metrics
@@ -262,7 +261,7 @@ Method-specific options are documented in each method section, such as CutMaster
 
 CutMaster edits long-form video through its MASTER Editing Team. Material Analyst builds reusable Shot, Segment, dialogue, and story Material Memory; the ASTER team—Arrangement Architect, Story Editor, Timeline Scout, Edit Composer, and Revision Editor—then arranges pacing, anchors the story, builds a validated Candidate Space, performs lazy VLM transition scoring and Beam Search composition, and completes candidate-constrained revision. Source windows are finally optimized around real visual cuts and assembled as hard cuts with FFmpeg.
 
-The benchmark adapter, `scripts/run_cutmaster.py`, uses an isolated worker to map each benchmark task to a `RunRequest`, directly calls the public `CutMaster(config).run(request)` entry point, and exports videos, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
+The benchmark adapter, `scripts/run_cutmaster.py`, uses an isolated worker to map each benchmark task to a `WorkflowRequest`, directly calls the public `Orchestrator(config).run(request)` entry point, and exports videos, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
 
 Setup:
 
@@ -317,7 +316,7 @@ CutMaster-specific arguments and recommendations:
 | `--dialogue-audio` | Include selected original-dialogue anchors in benchmark output. Disabled by default, so a full run directly produces the standard AAC BGM-only evaluation version. |
 | `--overwrite` | Regenerate task outputs without deleting CutMaster's source-analysis cache. Use for development and failed reruns. |
 
-Without `--overwrite`, a successful task with an existing `output.mp4` is skipped; failed or incomplete tasks are executed again. With `--overwrite`, task-level planning and rendering are rebuilt, but `.cutmaster/materials/` under the CutMaster project is preserved. Matching video, subtitle, analysis-model, and detection signatures reuse a complete source analysis. Interrupted analyses can also resume Shot detection, subtitle, Segment, Segment-video, and per-Shot VLM checkpoints.
+Without `--overwrite`, a successful task with an existing `output.mp4` is skipped; failed or incomplete tasks are executed again. With `--overwrite`, task-level ASTER coordination and rendering are rebuilt, but the `.cutmaster/media/` Material Library under the CutMaster project is preserved. Video or music whose Material Type, exact name, and bound content fingerprint all match idempotently reuses the managed source and completed analysis; the same name with different bytes raises a collision instead of receiving an automatic suffix. An interrupted video analysis also resumes its existing checkpoints when the subtitle and analysis specification are unchanged.
 
 Main output locations:
 
@@ -326,10 +325,10 @@ runs/<run_id>/task_outputs/<task_id>/output.mp4
 runs/<run_id>/task_outputs/<task_id>/run_output.json
 runs/<run_id>/task_outputs/<task_id>/logs/backend.log
 runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
-/Users/xinfanchen/Project/CutMaster/.cutmaster/materials/
+/Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` includes `script_raw.json`, `script_adapted.json`, `candidate_pool.json`, `selection_diagnostics.json`, `planning_history.json`, `cutmaster.log`, and the final `output.mp4`. Source analysis is cached per video, not per benchmark task. Terminal logs use level colors, while `logs/backend.log` and `artifacts/cutmaster/cutmaster.log` remain ANSI-free plain text.
+`artifacts/cutmaster/` stores the three stage outputs under `analyser/`, `planners/`, and `renderer/`, including Material Memory indexes, `planners_result.json`, `script_raw.json`, `render_plan.json`, diagnostics, and `renderer/output.mp4`. Video and music analysis is cached per Material rather than per benchmark task. Terminal logs use level colors, while `logs/backend.log` and `artifacts/cutmaster/cutmaster.log` remain ANSI-free plain text.
 
 After generation, validate and evaluate with:
 
@@ -705,7 +704,7 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 
 #### `python -m eval.run_evaluation`
 
-Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, optional `OQ`, and `Quality`. Outputs are written to `eval_results/<eval_id>/evaluation_scores.jsonl` and `summary.json`.
+Compute the main score: local automatic `BCS/AEC`, VLM-as-judge `IF/VQ/TC/NC`, and the automatic `Quality` derived from those six metrics. Outputs are written to `eval_results/<eval_id>/evaluation_scores.jsonl` and `summary.json`. Human ratings are stored and analyzed separately.
 
 ```bash
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
@@ -724,7 +723,7 @@ uv run python -m eval.run_evaluation \
   --metrics BCS
 ```
 
-`--task-id` (alias `--task-ids`) and `--metrics` accept comma-separated or repeated values. Supported metrics are `BCS/AEC/IF/VQ/TC/NC/OQ`. Selecting any VLM metric still performs one joint VLM request, but only the requested fields are replaced.
+`--task-id` (alias `--task-ids`) and `--metrics` accept comma-separated or repeated values. Supported metrics are `BCS/AEC/IF/VQ/TC/NC`. Selecting any VLM metric still performs one joint VLM request, but only the requested fields are replaced.
 
 If a generated video triggers server-side VLM content inspection, the evaluator skips that task's VLM-as-judge metrics and continues with the remaining tasks. The task still keeps local automatic metrics, `Quality` is renormalized over available metrics, and the skip reason is recorded under `judge.status = skipped` and the `vlm_judge` field in `summary.json`.
 

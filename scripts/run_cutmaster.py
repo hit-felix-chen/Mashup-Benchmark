@@ -248,13 +248,41 @@ def run_task(
     if return_code:
         raise RuntimeError(f"CutMaster exited with code {return_code}")
     result = json.loads((work_dir / "result.json").read_text(encoding="utf-8"))
-    shutil.copy2(work_dir / "output.mp4", output_video)
+    shutil.copy2(work_dir / "renderer" / "output.mp4", output_video)
     artifact_map = {
         "benchmark_task": relative(artifacts_dir / "benchmark_task.json", benchmark_root),
-        "script_raw": relative(work_dir / "script_raw.json", benchmark_root),
-        "script_adapted": relative(work_dir / "script_adapted.json", benchmark_root),
-        "dialogues_json": relative(work_dir / "dialogues.json", benchmark_root),
-        "processed_subtitle": relative(work_dir / "dialogue_merged.srt", benchmark_root),
+        "analysis_result": relative(
+            work_dir / "analyser" / "analysis_result.json",
+            benchmark_root,
+        ),
+        "music_analysis_result": relative(
+            work_dir / "analyser" / "music" / "music_analysis_result.json",
+            benchmark_root,
+        ),
+        "planners_result": relative(
+            work_dir / "planners" / "planners_result.json",
+            benchmark_root,
+        ),
+        "render_result": relative(
+            work_dir / "renderer" / "render_result.json",
+            benchmark_root,
+        ),
+        "script_raw": relative(
+            work_dir / "planners" / "script_raw.json",
+            benchmark_root,
+        ),
+        "render_plan": relative(
+            work_dir / "planners" / "render_plan.json",
+            benchmark_root,
+        ),
+        "dialogues_json": relative(
+            work_dir / "analyser" / "dialogues.json",
+            benchmark_root,
+        ),
+        "processed_subtitle": relative(
+            work_dir / "analyser" / "dialogue_merged.srt",
+            benchmark_root,
+        ),
         "cutmaster_result": relative(work_dir / "result.json", benchmark_root),
         "backend_log": relative(logs_dir / "backend.log", benchmark_root),
         "cutmaster_log": relative(work_dir / "cutmaster.log", benchmark_root),
@@ -287,7 +315,7 @@ def run_task(
             ),
             "stage_timings_sec": result.get("stage_timings_sec", {}),
             "num_raw_clips": result.get("num_raw_clips"),
-            "num_adapted_clips": result.get("num_adapted_clips"),
+            "num_planned_clips": result.get("num_planned_clips"),
         },
         "artifacts": artifact_map,
         "error": None,
@@ -401,7 +429,7 @@ def main() -> int:
         "name": "run_cutmaster",
         "script": "scripts/run_cutmaster.py",
         "worker": CUTMASTER_WORKER_REL.as_posix(),
-        "entrypoint": "CutMaster(config).run(request)",
+        "entrypoint": "Orchestrator(config).run(WorkflowRequest(...))",
         "project_root": str(project_root),
         "python": str(python),
         "benchmark_root": str(benchmark_root),

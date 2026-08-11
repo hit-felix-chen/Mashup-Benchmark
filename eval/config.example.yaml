@@ -14,16 +14,15 @@ vlm:
   retry_backoff_sec: 2
 
 metrics:
-  # Seven-metric benchmark weights. If a metric such as human OQ is missing,
-  # the evaluator renormalizes over the metrics that are actually available.
+  # Six-metric automatic Quality weights. Human ratings are stored and analyzed separately.
+  # If an automatic metric is missing, the evaluator renormalizes over the available metrics.
   weights:
-    IF: 0.1000
-    BCS: 0.2000
-    AEC: 0.2000
-    VQ: 0.1000
-    TC: 0.1000
-    NC: 0.1000
-    OQ: 0.2000
+    IF: 0.1250
+    BCS: 0.2500
+    AEC: 0.2500
+    VQ: 0.1250
+    TC: 0.1250
+    NC: 0.1250
 
 automatic_metrics:
   # AEC motion-energy sampling.

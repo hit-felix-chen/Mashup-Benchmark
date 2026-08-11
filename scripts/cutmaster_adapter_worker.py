@@ -7,21 +7,20 @@ import argparse
 import json
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-from cutmaster import CutMaster
+from cutmaster import Orchestrator
 from cutmaster.configuration.loader import load_config
-from cutmaster.contracts.workflow import RunRequest
+from cutmaster.contracts.workflow import WorkflowRequest
 from cutmaster.runtime.observability import (
     configure_logging,
     error_summary,
     log_event,
 )
+from dotenv import load_dotenv
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run one benchmark task with CutMaster(config).run(request)."
+        description="Run one benchmark task with Orchestrator(config).run(request)."
     )
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--audio", type=Path, required=True)
@@ -52,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv(config_path.parent / ".env", override=False)
     configure_logging(output_dir / "cutmaster.log", console_color=True)
 
-    request = RunRequest(
+    request = WorkflowRequest(
         video_path=args.video.resolve(),
         audio_path=args.audio.resolve(),
         prompt=args.prompt,
@@ -63,11 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         video_title=args.video_title,
         subtitle_path=args.subtitle.resolve() if args.subtitle else None,
         max_clip_duration_sec=args.max_clip_duration,
-        include_dialogue_audio=args.dialogue_audio,
+        audio_mode="dialogue" if args.dialogue_audio else "bgm_only",
         overwrite=args.overwrite,
     )
     try:
-        result = CutMaster(load_config(config_path)).run(request)
+        result = Orchestrator(load_config(config_path)).run(request)
     except Exception as exc:
         log_event(
             "ERROR",

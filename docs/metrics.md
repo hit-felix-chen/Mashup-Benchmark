@@ -1,11 +1,11 @@
 # Evaluation Metrics
 
-The evaluator supports seven quality metrics: two local automatic metrics, four VLM-as-judge metrics, and one optional human metric. Local automatic metrics and `Quality` are reported on `[0, 100]`. VLM-as-judge metrics and the optional human `OQ` metric are reported as raw 1-5 Likert scores and normalized internally for `Quality`.
+The automatic evaluator supports six quality metrics: two local automatic metrics and four VLM-as-judge metrics. Local automatic metrics and `Quality` are reported on `[0, 100]`. VLM-as-judge metrics are reported as raw 1-5 Likert scores and normalized internally for `Quality`. Human ratings are stored and analyzed separately.
 
 ## Quality Score
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
+Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
 ```
 
 For `Quality`, Likert scores are converted to `[0, 100]` by:
@@ -14,30 +14,18 @@ For `Quality`, Likert scores are converted to `[0, 100]` by:
 normalized_vlm_score = (likert_score - 1) / 4 * 100
 ```
 
-Default seven-metric weights:
+Default six-metric weights:
 
 ```text
-BCS = 0.20  # local automatic
-AEC = 0.20  # local automatic
-IF  = 0.10  # VLM-as-judge
-VQ  = 0.10  # VLM-as-judge
-TC  = 0.10  # VLM-as-judge
-NC  = 0.10  # VLM-as-judge
-OQ  = 0.20  # human evaluation
+BCS = 0.25   # local automatic
+AEC = 0.25   # local automatic
+IF  = 0.125  # VLM-as-judge
+VQ  = 0.125  # VLM-as-judge
+TC  = 0.125  # VLM-as-judge
+NC  = 0.125  # VLM-as-judge
 ```
 
-If `OQ` is unavailable, the evaluator renormalizes over the six available metrics:
-
-```text
-BCS = 0.25
-AEC = 0.25
-IF  = 0.125
-VQ  = 0.125
-TC  = 0.125
-NC  = 0.125
-```
-
-The implementation also renormalizes automatically for any other missing metric, which keeps smoke tests and partial evaluations comparable within the metrics they actually compute.
+The implementation renormalizes automatically over the available automatic metrics when one is missing, which keeps smoke tests and partial evaluations comparable within the metrics they actually compute. Extra fields, including human `OQ`, never affect `Quality`.
 
 ## Cross-Modal Alignment
 
@@ -86,13 +74,13 @@ Scores whether the complete edit has a coherent structure, emotional progression
 
 Implementation: VLM-as-judge using the final rendered video plus task metadata on a 1-5 Likert scale.
 
-## Human Preference
+## Human Validation
 
 ### OQ: Overall Quality
 
-Scores whether a viewer considers the final video good, natural, professional, and publishable.
+Records whether a viewer considers the final video good, natural, professional, and publishable.
 
-Implementation: optional human rating on a 1-5 Likert scale. If a run record provides `human_scores.OQ` or `scores.OQ`, the evaluator includes it in `Quality` after converting it with `(score - 1) / 4 * 100`; otherwise the score is computed from the available automatic and VLM metrics only.
+Implementation: an independent 1-5 Likert human rating used to validate the automatic evaluation through agreement and correlation analyses. It is stored outside run outputs and automatic evaluation records, and it never contributes to `Quality`.
 
 ## Efficiency
 

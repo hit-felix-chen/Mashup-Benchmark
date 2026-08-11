@@ -58,7 +58,7 @@ Does the edit have a clear structure, progression, or story arc matching the pro
 - 4 = clear progression with minor gaps or pacing issues.
 - 5 = strong beginning-middle-end or emotional/story progression.
 
-`OQ` is not scored by the VLM judge. It is reserved for optional human overall-quality evaluation on the same 1-5 Likert scale and can be supplied as `human_scores.OQ` or `scores.OQ` in a run record.
+`OQ` is not scored by the VLM judge. It is collected by a separate human-evaluation workflow on a 1-5 Likert scale, stored outside run and automatic evaluation records, and used only for human-validation analyses. It never contributes to automatic `Quality`.
 
 Return JSON only:
 

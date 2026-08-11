@@ -4,8 +4,8 @@ from typing import Any
 
 from eval.config import weights_from_config
 
-METRICS = ["IF", "BCS", "AEC", "VQ", "TC", "NC", "OQ"]
-LIKERT_METRICS = {"IF", "VQ", "TC", "NC", "OQ"}
+QUALITY_METRICS = ("IF", "BCS", "AEC", "VQ", "TC", "NC")
+LIKERT_METRICS = frozenset({"IF", "VQ", "TC", "NC"})
 
 
 def normalize_score_for_quality(metric: str, value: float | int | None) -> float | None:
@@ -22,7 +22,7 @@ def compute_quality(scores: dict[str, float | None], config: dict[str, Any]) -> 
     weights = weights_from_config(config)
     available = {
         metric: normalize_score_for_quality(metric, scores.get(metric))
-        for metric in METRICS
+        for metric in QUALITY_METRICS
         if scores.get(metric) is not None
     }
     if not available:
@@ -34,7 +34,7 @@ def compute_quality(scores: dict[str, float | None], config: dict[str, Any]) -> 
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
-    metric_names = METRICS + ["Quality"]
+    metric_names = (*QUALITY_METRICS, "Quality")
     summary: dict[str, Any] = {"num_records": len(records), "metrics": {}}
     for metric in metric_names:
         values = [r.get("scores", {}).get(metric) for r in records]

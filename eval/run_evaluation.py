@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from eval.aggregate_scores import compute_quality, normalize_score_for_quality, summarize
+from eval.aggregate_scores import QUALITY_METRICS, compute_quality, normalize_score_for_quality, summarize
 from eval.config import load_config
 from eval.evaluators.cut_boundary_validator import CutBoundaryValidator
 from eval.evaluators.vlm_judge import VLMJudge, VLMJudgeSkipped
@@ -18,7 +18,7 @@ from eval.metrics.alignment import audio_visual_energy_correspondence, beat_cut_
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_FILE = ROOT / "data" / "tasks" / "mashup_benchmark.jsonl"
-BASE_METRICS = ("BCS", "AEC", "IF", "VQ", "TC", "NC", "OQ")
+BASE_METRICS = QUALITY_METRICS
 VLM_METRICS = frozenset({"IF", "VQ", "TC", "NC"})
 
 
@@ -70,6 +70,21 @@ def load_evaluation_records(eval_id: str) -> dict[str, dict[str, Any]]:
     return records
 
 
+def finalize_automatic_score_record(score_record: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    """Remove legacy human fields and recompute the six-metric automatic Quality."""
+    score_record.pop("human_scores", None)
+    for section in ("scores", "metric_details"):
+        values = score_record.get(section)
+        if isinstance(values, dict):
+            values.pop("OQ", None)
+    rationale = score_record.get("rationale")
+    if isinstance(rationale, dict):
+        rationale.pop("OQ", None)
+    scores = score_record.setdefault("scores", {})
+    scores["Quality"] = compute_quality(scores, config)
+    return score_record
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate one Mashup-Benchmark run.")
     parser.add_argument("--run", required=True, help="Path to runs/<run_id>.")
@@ -94,7 +109,7 @@ def main() -> int:
         "--metrics",
         action="append",
         default=None,
-        help="Only recompute these metrics: BCS,AEC,IF,VQ,TC,NC,OQ. Quality is always recomputed.",
+        help="Only recompute these metrics: BCS,AEC,IF,VQ,TC,NC. Quality is always recomputed.",
     )
     parser.add_argument(
         "--reuse-eval-id",
@@ -125,7 +140,7 @@ def main() -> int:
     if requested_metrics_list:
         selected_metrics = set(requested_metrics_list)
     elif args.skip_vlm:
-        selected_metrics = {"BCS", "AEC", "OQ"}
+        selected_metrics = {"BCS", "AEC"}
     else:
         selected_metrics = set(BASE_METRICS)
 
@@ -218,25 +233,6 @@ def main() -> int:
             score_record["scores"]["AEC"] = aec["score"]
             score_record["metric_details"]["AEC"] = aec
 
-        # Optional human rating. If present, OQ joins the weighted Quality score;
-        # otherwise compute_quality renormalizes over the available metrics.
-        if "OQ" in selected_metrics:
-            human_scores = record.get("human_scores") or {}
-            record_scores = record.get("scores") or {}
-            oq_score = human_scores.get("OQ", record_scores.get("OQ"))
-            if oq_score is not None:
-                oq_score = max(1.0, min(5.0, float(oq_score)))
-                score_record["scores"]["OQ"] = oq_score
-                score_record["metric_details"]["OQ"] = {
-                    "source": "human_scores" if "OQ" in human_scores else "scores",
-                    "scale": "likert_1_5",
-                    "raw_score": oq_score,
-                    "normalized_score": normalize_score_for_quality("OQ", oq_score),
-                }
-            else:
-                score_record["scores"].pop("OQ", None)
-                score_record["metric_details"].pop("OQ", None)
-
         selected_vlm_metrics = selected_metrics & VLM_METRICS
         if selected_vlm_metrics:
             judge = VLMJudge(config)
@@ -314,7 +310,10 @@ def main() -> int:
         if cut_validator is not None:
             cut_validator.close()
 
-    outputs = [outputs_by_index[idx] for idx, _record in indexed_records]
+    outputs = [
+        finalize_automatic_score_record(outputs_by_index[idx], config)
+        for idx, _record in indexed_records
+    ]
 
     eval_dir.mkdir(parents=True, exist_ok=True)
     scores_path = eval_dir / "evaluation_scores.jsonl"

@@ -172,20 +172,19 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 
 ### 通用指标
 
-完整质量分包含 7 个指标：
+自动化 `Quality` 分数包含 6 个指标：
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC, OQ)
+Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
 ```
 
 权重规则：
 
-- 本地自动指标：`BCS = 0.20`，`AEC = 0.20`。
-- VLM-as-judge 指标：`IF = 0.10`，`VQ = 0.10`，`TC = 0.10`，`NC = 0.10`。
-- 人类评估指标：`OQ = 0.20`。
-- 如果没有人类 `OQ` 分数，则对可用的 6 个指标自动归一化：`BCS = 0.25`，`AEC = 0.25`，`IF/VQ/TC/NC = 0.125`。
+- 本地自动指标：`BCS = 0.25`，`AEC = 0.25`。
+- VLM-as-judge 指标：`IF = 0.125`，`VQ = 0.125`，`TC = 0.125`，`NC = 0.125`。
+- 如果某个自动指标缺失，则只在其余可用自动指标之间重新归一化权重。
 
-VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Likert 量表；计算 `Quality` 时会按 `(score - 1) / 4 * 100` 转换为 0-100 尺度。
+VLM-as-judge 的 `IF/VQ/TC/NC` 原始分数采用 1-5 Likert 量表；计算 `Quality` 时会按 `(score - 1) / 4 * 100` 转换为 0-100 尺度。
 
 指标含义：
 
@@ -195,7 +194,7 @@ VLM-as-judge 的 `IF/VQ/TC/NC` 和人类评估的 `OQ` 原始分数采用 1-5 Li
 - VQ：Visual Quality，视觉质量。
 - TC：Transition Continuity，片段和转场连续性。
 - NC：Narrative Coherence，叙事连贯性。
-- OQ：Overall Quality，人类整体质量评分，可选，1-5 Likert 量表。
+- OQ：Overall Quality，人类整体质量评分，采用独立的人工评测流程保存和分析，不写入自动评测结果，也不参与 `Quality`。
 
 
 ### 专用指标
@@ -262,7 +261,7 @@ uv run python scripts/export_specified_metrics_table.py \
 
 CutMaster 通过 MASTER Editing Team 完成长视频音乐混剪：Material Analyst 建立可跨 task 复用的 Shot、Segment、台词和故事素材记忆；ASTER 团队中的 Arrangement Architect、Story Editor、Timeline Scout、Edit Composer 与 Revision Editor 随后依次完成节奏编排、故事锚定、候选空间构建、延迟 VLM 转场评分与 Beam Search 组接，以及候选空间内最终修订。最后对原片窗口进行切点优化，并用 FFmpeg 仅以原片片段硬切拼接。
 
-benchmark adapter `scripts/run_cutmaster.py` 通过隔离的 worker 把 benchmark task 转换为 `RunRequest`，直接调用公共入口 `CutMaster(config).run(request)`，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
+benchmark adapter `scripts/run_cutmaster.py` 通过隔离的 worker 把 benchmark task 转换为 `WorkflowRequest`，直接调用公共入口 `Orchestrator(config).run(request)`，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
 
 运行前准备：
 
@@ -317,7 +316,7 @@ CutMaster 特有参数和建议：
 | `--dialogue-audio` | 在评测成片中加入选中的原声锚点；默认关闭，因此正常完整运行会直接输出标准 AAC 纯 BGM 版本。 |
 | `--overwrite` | 重新生成 task 输出，但不会删除 CutMaster 的素材级分析缓存。开发和失败重跑时使用。 |
 
-不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的规划与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/materials/` 不会删除。相同原片、字幕、分析模型和检测配置会复用完整素材分析；若上次只完成了部分阶段，也会复用 Shot 检测、字幕、Segment、Segment 视频以及每个已完成的 Shot VLM checkpoint。
+不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的 ASTER 协作与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/media/` Material Library 不会删除。同一 Material Type 下名称与已绑定内容指纹都一致的视频或音乐会幂等复用托管素材及已完成分析；同名但内容不同会直接报冲突，不会自动追加后缀。若上次只完成了部分视频分析，在同一字幕与分析规格下也会继续复用已有 checkpoint。
 
 主要输出位置：
 
@@ -326,10 +325,10 @@ runs/<run_id>/task_outputs/<task_id>/output.mp4
 runs/<run_id>/task_outputs/<task_id>/run_output.json
 runs/<run_id>/task_outputs/<task_id>/logs/backend.log
 runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
-/Users/xinfanchen/Project/CutMaster/.cutmaster/materials/
+/Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` 包含 `script_raw.json`、`script_adapted.json`、`candidate_pool.json`、`selection_diagnostics.json`、`planning_history.json`、`cutmaster.log` 和最终 `output.mp4` 等产物。素材分析缓存按视频保存而不是按 benchmark task 保存。终端日志按等级显示颜色；`logs/backend.log` 和 `artifacts/cutmaster/cutmaster.log` 保持无 ANSI 的纯文本。
+`artifacts/cutmaster/` 按 `analyser/`、`planners/`、`renderer/` 保存三阶段产物：其中包括 Material Memory 索引、`planners_result.json`、`script_raw.json`、`render_plan.json`、诊断信息和 `renderer/output.mp4`。视频与音乐素材分析按 Material 保存而不是按 benchmark task 保存。终端日志按等级显示颜色；`logs/backend.log` 和 `artifacts/cutmaster/cutmaster.log` 保持无 ANSI 的纯文本。
 
 运行完成后可用以下命令校验并评测：
 
@@ -731,7 +730,7 @@ uv run python scripts/run_openmontage.py --task-id task_001 --run-id openmontage
 
 #### `python -m eval.run_evaluation`
 
-计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及可选 `OQ` 后的 `Quality`。输出到 `eval_results/<eval_id>/evaluation_scores.jsonl` 和 `summary.json`。
+计算主评分，包括本地自动指标 `BCS/AEC`、VLM-as-judge 的 `IF/VQ/TC/NC`，以及由这六项得到的自动化 `Quality`。输出到 `eval_results/<eval_id>/evaluation_scores.jsonl` 和 `summary.json`。人工评分通过独立流程保存和分析。
 
 ```bash
 uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.yaml
@@ -763,7 +762,7 @@ uv run python -m eval.run_evaluation \
 局部重评默认直接覆盖 `--reuse-eval-id` 对应的原评测目录，不再创建新的时间戳目录。
 只有显式传入不同的 `--eval-id` 时，才会把合并结果保存为另一份评测。
 
-`--task-id`（别名 `--task-ids`）和 `--metrics` 均支持逗号分隔或重复传入。可选指标为 `BCS/AEC/IF/VQ/TC/NC/OQ`；VLM 指标即使只重评其中一项，也会完成一次联合 VLM 请求，但只覆盖指定字段。
+`--task-id`（别名 `--task-ids`）和 `--metrics` 均支持逗号分隔或重复传入。可选指标为 `BCS/AEC/IF/VQ/TC/NC`；VLM 指标即使只重评其中一项，也会完成一次联合 VLM 请求，但只覆盖指定字段。
 
 如果某个成片触发 VLM 服务端内容检查，评测器会跳过该 task 的 VLM-as-judge 指标并继续处理后续任务；该 task 仍保留本地自动指标，`Quality` 会基于可用指标重新归一化，跳过原因记录在 `judge.status = skipped` 和 `summary.json` 的 `vlm_judge` 字段中。
 

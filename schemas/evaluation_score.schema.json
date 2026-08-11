@@ -3,6 +3,14 @@
   "title": "Mashup-Benchmark evaluation score record",
   "type": "object",
   "additionalProperties": true,
+  "propertyNames": {
+    "not": {
+      "enum": [
+        "human_scores",
+        "OQ"
+      ]
+    }
+  },
   "required": [
     "eval_id",
     "run_id",
@@ -41,6 +49,7 @@
     },
     "scores": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "IF": {
           "type": [
@@ -90,14 +99,6 @@
           "minimum": 1,
           "maximum": 5
         },
-        "OQ": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 1,
-          "maximum": 5
-        },
         "Quality": {
           "type": [
             "number",
@@ -109,7 +110,12 @@
       }
     },
     "metric_details": {
-      "type": "object"
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "const": "OQ"
+        }
+      }
     },
     "cost": {
       "type": "object"
@@ -121,7 +127,12 @@
       "type": [
         "object",
         "string"
-      ]
+      ],
+      "propertyNames": {
+        "not": {
+          "const": "OQ"
+        }
+      }
     },
     "diagnostics": {
       "type": "object",

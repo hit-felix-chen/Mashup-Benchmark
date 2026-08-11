@@ -6,13 +6,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "eval" / "config.yaml"
 DEFAULT_WEIGHTS = {
-    "IF": 0.1000,
-    "BCS": 0.2000,
-    "AEC": 0.2000,
-    "VQ": 0.1000,
-    "TC": 0.1000,
-    "NC": 0.1000,
-    "OQ": 0.2000,
+    "IF": 0.1250,
+    "BCS": 0.2500,
+    "AEC": 0.2500,
+    "VQ": 0.1250,
+    "TC": 0.1250,
+    "NC": 0.1250,
 }
 
 
