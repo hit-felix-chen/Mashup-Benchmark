@@ -5,6 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from eval.target_duration import validate_target_output_length  # noqa: E402
+
 
 def normalize_thread_count(value):
     if value is None:
@@ -27,7 +33,6 @@ for _thread_env_name in (
 ):
     os.environ[_thread_env_name] = normalize_thread_count(os.environ.get(_thread_env_name))
 
-ROOT = Path(__file__).resolve().parents[1]
 TASK_FILE = ROOT / "data" / "tasks" / "mashup_benchmark.jsonl"
 REQUIRED_MANIFEST = {
     "run_id", "method", "benchmark", "task_file", "created_at",
@@ -151,8 +156,15 @@ def main(argv):
             errors.append(f"record {i}: audio_id does not match task {task_id}")
         if record["prompt_type"] != task["task"]["type"]:
             errors.append(f"record {i}: prompt_type does not match task {task_id}")
-        if record["target_output_length_sec"] != task["task"]["target_output_length_sec"]:
-            errors.append(f"record {i}: target_output_length_sec does not match task {task_id}")
+        try:
+            validate_target_output_length(
+                task,
+                record,
+                benchmark_root=ROOT,
+                probe_duration=ffprobe_duration,
+            )
+        except ValueError as exc:
+            errors.append(f"record {i}: {exc}")
         if record["target_shot_length_sec"] != task["task"]["target_shot_length_sec"]:
             errors.append(f"record {i}: target_shot_length_sec does not match task {task_id}")
 
@@ -176,6 +188,22 @@ def main(argv):
                     )
 
     if manifest and records:
+        manifest_duration_mode = (
+            manifest.get("adapter", {})
+            .get("options", {})
+            .get("target_duration_mode")
+        )
+        if manifest_duration_mode is not None:
+            record_duration_modes = {
+                record.get("target_duration_mode", "task")
+                for record in records
+            }
+            if record_duration_modes != {manifest_duration_mode}:
+                errors.append(
+                    "manifest adapter.options.target_duration_mode does not match "
+                    f"run records ({manifest_duration_mode!r} vs "
+                    f"{sorted(repr(mode) for mode in record_duration_modes)!r})"
+                )
         expected_task_ids = (
             manifest.get("adapter", {})
             .get("task_selection", {})

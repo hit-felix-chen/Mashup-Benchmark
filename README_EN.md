@@ -261,7 +261,7 @@ Method-specific options are documented in each method section, such as CutMaster
 
 CutMaster edits long-form video through its MASTER Editing Team. Material Analyst builds reusable Shot, Segment, dialogue, and story Material Memory; the ASTER team—Arrangement Architect, Story Editor, Timeline Scout, Edit Composer, and Revision Editor—then arranges pacing, anchors the story, builds a validated Candidate Space, performs lazy VLM transition scoring and Beam Search composition, and completes candidate-constrained revision. Source windows are finally optimized around real visual cuts and assembled as hard cuts with FFmpeg.
 
-The benchmark adapter, `scripts/run_cutmaster.py`, uses an isolated worker to map each benchmark task to a `WorkflowRequest`, directly calls the public `Orchestrator(config).run(request)` entry point, and exports videos, scripts, logs, and run metadata into the standard `runs/<run_id>/` structure.
+The benchmark adapter, `scripts/run_cutmaster.py`, uses an isolated worker to map each task to an `ExecuteManagedWorkflowCommand`. It creates the same Material, Project, ASTER Run, Frozen Edit, and Render Variant history as Web, then copies the evaluation video and metadata into the standard `runs/<run_id>/` structure.
 
 Setup:
 
@@ -304,6 +304,19 @@ uv run python scripts/run_cutmaster.py \
   --method-version master-team-v1
 ```
 
+Run `task_033`–`task_036` with each input BGM's full duration as its output target:
+
+```bash
+uv run python scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
+  --task-id task_033 task_034 task_035 task_036 \
+  --target-duration-mode music \
+  --run-id cutmaster_tasks033_036_music_duration \
+  --method-version master-team-v1
+```
+
 CutMaster-specific arguments and recommendations:
 
 | Argument | Description |
@@ -313,10 +326,11 @@ CutMaster-specific arguments and recommendations:
 | `--cutmaster-config` | CutMaster TOML config; defaults to `<cutmaster-root>/config.toml`. |
 | `--subtitle-path` | Explicitly reuse an SRT for a single task; if omitted, Fun-ASR is called. |
 | `--method-version` | CutMaster experiment label written to the manifest; defaults to `master-team-v1`. |
+| `--target-duration-mode task\|music` | Target-duration source. `task` (the default) uses the task definition; `music` uses the full input BGM duration reported by `ffprobe`. |
 | `--dialogue-audio` | Include selected original-dialogue anchors in benchmark output. Disabled by default, so a full run directly produces the standard AAC BGM-only evaluation version. |
-| `--overwrite` | Regenerate task outputs without deleting CutMaster's source-analysis cache. Use for development and failed reruns. |
+| `--overwrite` | Regenerate benchmark task outputs while preserving old CutMaster history and creating a new Project/Run/Render; source-analysis cache remains intact. |
 
-Without `--overwrite`, a successful task with an existing `output.mp4` is skipped; failed or incomplete tasks are executed again. With `--overwrite`, task-level ASTER coordination and rendering are rebuilt, but the `.cutmaster/media/` Material Library under the CutMaster project is preserved. Video or music whose Material Type, exact name, and bound content fingerprint all match idempotently reuses the managed source and completed analysis; the same name with different bytes raises a collision instead of receiving an automatic suffix. An interrupted video analysis also resumes its existing checkpoints when the subtitle and analysis specification are unchanged.
+Without `--overwrite`, a successful task with an existing `output.mp4` is skipped only when its target-duration mode and effective target both match the current request; a legacy record without a mode is treated as `task`. A mismatch requires a new `--run-id` or an explicit `--overwrite`, preventing silent reuse of an output with the wrong duration. Failed or incomplete tasks are executed again. With `--overwrite`, task-level ASTER coordination and rendering are rebuilt, but the `.cutmaster/media/` Material Library under the CutMaster project is preserved. Video or music whose Material Type, exact name, and bound content fingerprint all match idempotently reuses the managed source and completed analysis; the same name with different bytes raises a collision instead of receiving an automatic suffix. An interrupted video analysis also resumes its existing checkpoints when the subtitle and analysis specification are unchanged. In `run_output.json`, `target_output_length_sec` stores the effective target passed to CutMaster and `target_duration_mode` records its source; `adapter.options.target_duration_mode` in the run manifest records the mode selected for the invocation.
 
 Main output locations:
 
@@ -328,7 +342,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 /Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` stores the three stage outputs under `analyser/`, `planners/`, and `renderer/`, including Material Memory indexes, `planners_result.json`, `script_raw.json`, `render_plan.json`, diagnostics, and `renderer/output.mp4`. Video and music analysis is cached per Material rather than per benchmark task. Terminal logs use level colors, while `logs/backend.log` and `artifacts/cutmaster/cutmaster.log` remain ANSI-free plain text.
+`artifacts/cutmaster/` stores the adapter receipt and evaluation copies exported from CutMaster's Application Data Root; it is no longer the authoritative CutMaster Workflow Bundle. The adapter resolves logical keys from the managed receipt, rejects unsupported manifest versions, missing required keys, and paths escaping the Data Root. CutMaster retains Web-visible Material, Project, Run, Frozen Edit, and Render Variant history. `logs/backend.log` records worker subprocess output.
 
 After generation, validate and evaluate with:
 
@@ -439,6 +453,16 @@ uv run python scripts/run_narratoai.py \
   --run-id narratoai_benchmark
 ```
 
+To use the benchmark BGM's actual full duration as the output target instead of the task's canonical 60-second target, explicitly select `music` mode:
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --task-id task_033 task_034 task_035 task_036 \
+  --target-duration-mode music \
+  --run-id narratoai_tasks033_036_music_duration
+```
+
 Run all tasks:
 
 ```bash
@@ -452,6 +476,7 @@ NarratoAI-specific arguments:
 
 | Argument | Description |
 | --- | --- |
+| `--target-duration-mode` | Target-duration source: `task` (default) uses the canonical task target, while `music` reads the benchmark BGM's actual full duration with `ffprobe`. |
 | `--asr-backend` | Subtitle transcription backend: `bailian`, `local`, or `firered`. Defaults to `bailian`. |
 | `--no-reuse-asr` | Regenerate subtitles even when `artifacts/source.srt` already exists. Existing SRT files are reused by default. |
 | `--custom-clips` | Number of candidate clips requested from NarratoAI. Defaults to `target_output_length_sec / target_shot_length_sec`. |
@@ -472,6 +497,8 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 ```
 
 This adapter does not modify NarratoAI's core code. It invokes NarratoAI's ASR, short-mix script generation, and video rendering services through an external worker, then normalizes the output into the benchmark-standard `runs/<run_id>/` structure.
+
+In `music` mode, the effective duration is used for candidate-count estimation, the script post-processing cap, and the NarratoAI worker payload. NarratoAI's BGM render path then trims audio to the generated video timeline, so there is no additional fixed 60-second audio trim. In `run_output.json`, `target_output_length_sec` stores the effective target and `target_duration_mode` records its source; the run manifest stores the invocation mode in `adapter.options.target_duration_mode`. A legacy record without a mode is interpreted as `task`. If an existing successful output under the same `run-id` has a different mode or effective target, the adapter requires a new `--run-id` or an explicit `--overwrite`.
 
 </details>
 

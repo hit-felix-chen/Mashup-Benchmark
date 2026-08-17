@@ -12,15 +12,15 @@ import subprocess
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_NARRATOAI_ROOT = BENCHMARK_ROOT.parent / "NarratoAI"
 DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
+TARGET_DURATION_MODES = ("task", "music")
 
 
 WORKER_SOURCE = r'''
@@ -340,7 +340,7 @@ if __name__ == "__main__":
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat()
+    return datetime.now(UTC).astimezone().isoformat()
 
 
 def load_tasks(task_file: Path) -> list[dict[str, Any]]:
@@ -394,6 +394,28 @@ def ffprobe_duration(path: Path) -> float | None:
         return float(out)
     except Exception:
         return None
+
+
+def resolve_target_output_length_sec(
+    task: dict[str, Any],
+    audio: Path,
+    target_duration_mode: str,
+) -> float:
+    if target_duration_mode == "task":
+        duration = float(task["task"]["target_output_length_sec"])
+    elif target_duration_mode == "music":
+        probed_duration = ffprobe_duration(audio)
+        if probed_duration is None:
+            raise ValueError(f"Could not probe benchmark audio duration: {audio}")
+        duration = float(probed_duration)
+    else:
+        raise ValueError(f"Unsupported target duration mode: {target_duration_mode!r}")
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError(
+            f"Resolved target output duration must be positive and finite, got {duration!r} "
+            f"from {target_duration_mode!r} mode"
+        )
+    return duration
 
 
 def stream_command(cmd: list[str], log_path: Path, *, cwd: Path, dry_run: bool = False) -> int:
@@ -450,6 +472,53 @@ def load_existing_record(task_dir: Path) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _record_matches_target(
+    record: dict[str, Any],
+    *,
+    target_duration_mode: str,
+    target_output_length_sec: float,
+) -> bool:
+    recorded_mode = record.get("target_duration_mode", "task")
+    try:
+        recorded_target = float(record["target_output_length_sec"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return recorded_mode == target_duration_mode and math.isclose(
+        recorded_target,
+        target_output_length_sec,
+        rel_tol=1e-9,
+        abs_tol=1e-6,
+    )
+
+
+def reusable_success_record(
+    task_dir: Path,
+    *,
+    overwrite: bool,
+    target_duration_mode: str,
+    target_output_length_sec: float,
+) -> dict[str, Any] | None:
+    output_video = task_dir / "output.mp4"
+    existing = load_existing_record(task_dir)
+    if overwrite or not output_video.exists() or (existing or {}).get("status") != "success":
+        return None
+    assert existing is not None
+    if _record_matches_target(
+        existing,
+        target_duration_mode=target_duration_mode,
+        target_output_length_sec=target_output_length_sec,
+    ):
+        return existing
+    recorded_mode = existing.get("target_duration_mode", "task")
+    recorded_target = existing.get("target_output_length_sec")
+    raise RuntimeError(
+        "Existing successful output uses a different target duration "
+        f"(mode={recorded_mode!r}, target={recorded_target!r}); requested "
+        f"mode={target_duration_mode!r}, target={target_output_length_sec!r}. "
+        "Use --overwrite or a new --run-id."
+    )
 
 
 def write_run_index(
@@ -543,6 +612,8 @@ def run_one_task(
     n_threads: int,
     subtitle_enabled: bool,
     reuse_asr: bool,
+    target_duration_mode: str = "task",
+    target_output_length_sec: float | None = None,
 ) -> dict[str, Any]:
     task_id = task["id"]
     run_dir = results_root / run_id
@@ -550,11 +621,17 @@ def run_one_task(
     logs_dir = task_dir / "logs"
     artifacts_dir = task_dir / "artifacts"
     output_video = task_dir / "output.mp4"
-    existing_record = load_existing_record(task_dir)
-
     video_path, audio_path = task_paths(task, benchmark_root)
     prompt = task["task"]["prompt"]
-    target_output = float(task["task"]["target_output_length_sec"])
+    if target_duration_mode not in TARGET_DURATION_MODES:
+        raise ValueError(f"Unsupported target duration mode: {target_duration_mode!r}")
+    target_output = (
+        resolve_target_output_length_sec(task, audio_path, target_duration_mode)
+        if target_output_length_sec is None
+        else float(target_output_length_sec)
+    )
+    if not math.isfinite(target_output) or target_output <= 0:
+        raise ValueError(f"target_output_length_sec must be positive and finite, got {target_output!r}")
     target_shot = float(task["task"]["target_shot_length_sec"])
     prompt_type = task["task"]["type"]
 
@@ -562,20 +639,18 @@ def run_one_task(
     t0 = time.time()
     status = "skipped" if dry_run else "success"
 
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    write_json(artifacts_dir / "benchmark_task.json", task)
-
-    can_reuse_success = (
-        output_video.exists()
-        and not overwrite
-        and (existing_record is None or existing_record.get("status") == "success")
-        and not (existing_record or {}).get("error")
+    existing_record = reusable_success_record(
+        task_dir,
+        overwrite=overwrite,
+        target_duration_mode=target_duration_mode,
+        target_output_length_sec=target_output,
     )
-    if can_reuse_success:
+    if existing_record is not None:
         print(f"[{task_id}] success output exists, reusing: {output_video}")
+        return existing_record
     else:
-        if existing_record and existing_record.get("status") != "success" and not overwrite:
-            print(f"[{task_id}] existing record is {existing_record.get('status')}, retrying in same run")
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        write_json(artifacts_dir / "benchmark_task.json", task)
         if not video_path.exists():
             raise FileNotFoundError(f"Benchmark video not found: {video_path}")
         if not audio_path.exists():
@@ -601,6 +676,7 @@ def run_one_task(
             "video_category": task["video"].get("category"),
             "prompt": prompt,
             "prompt_type": prompt_type,
+            "target_duration_mode": target_duration_mode,
             "target_output_length_sec": target_output,
             "target_shot_length_sec": target_shot,
             "custom_clips": custom_clips,
@@ -657,6 +733,7 @@ def run_one_task(
         "prompt_type": prompt_type,
         "status": status,
         "output_video": rel_to_benchmark(output_video, benchmark_root),
+        "target_duration_mode": target_duration_mode,
         "target_output_length_sec": target_output,
         "target_shot_length_sec": target_shot,
         "actual_output_length_sec": float(actual_duration or 0.0),
@@ -700,12 +777,19 @@ def write_failed_record(
     method_version: str,
     started_at: str,
     exc: BaseException,
+    target_duration_mode: str = "task",
+    target_output_length_sec: float | None = None,
 ) -> dict[str, Any]:
     task_id = task["id"]
     run_dir = results_root / run_id
     task_dir = run_dir / "task_outputs" / task_id
     output_video = task_dir / "output.mp4"
     ended_at = now_iso()
+    effective_target = (
+        float(task["task"]["target_output_length_sec"])
+        if target_output_length_sec is None
+        else float(target_output_length_sec)
+    )
     record = {
         "run_id": run_id,
         "method": method,
@@ -716,7 +800,8 @@ def write_failed_record(
         "prompt_type": task["task"]["type"],
         "status": "failed",
         "output_video": rel_to_benchmark(output_video, benchmark_root),
-        "target_output_length_sec": float(task["task"]["target_output_length_sec"]),
+        "target_duration_mode": target_duration_mode,
+        "target_output_length_sec": effective_target,
         "target_shot_length_sec": float(task["task"]["target_shot_length_sec"]),
         "actual_output_length_sec": 0.0,
         "wall_clock_sec": 0.0,
@@ -754,6 +839,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default="narratoai_benchmark")
     parser.add_argument("--method", default="NarratoAI")
     parser.add_argument("--method-version", default="0.8.4-adapted")
+    parser.add_argument(
+        "--target-duration-mode",
+        choices=TARGET_DURATION_MODES,
+        default="task",
+        help="Use the canonical task target (default) or the benchmark BGM's full duration.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate even if task output.mp4 already exists.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands and write metadata without executing heavy steps.")
     parser.add_argument("--asr-backend", choices=["bailian", "local", "firered"], default="bailian")
@@ -806,7 +897,28 @@ def main() -> int:
     else:
         raise SystemExit("Use --task-id task_001, --all, or --list-tasks.")
 
+    effective_targets: dict[str, float] = {}
+    for task in selected:
+        _video_path, audio_path = task_paths(task, benchmark_root)
+        if not audio_path.is_file():
+            raise SystemExit(f"Audio not found for {task['id']}: {audio_path}")
+        effective_targets[task["id"]] = resolve_target_output_length_sec(
+            task,
+            audio_path,
+            args.target_duration_mode,
+        )
+
     run_dir = results_root / args.run_id
+    for task in selected:
+        try:
+            reusable_success_record(
+                run_dir / "task_outputs" / task["id"],
+                overwrite=args.overwrite,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
+            )
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
     run_dir.mkdir(parents=True, exist_ok=True)
     started_at = now_iso()
     adapter_metadata = {
@@ -825,6 +937,7 @@ def main() -> int:
             "overwrite": bool(args.overwrite),
             "dry_run": bool(args.dry_run),
             "pipeline": "ASR -> short_mix -> force_OST_1 -> benchmark_BGM_render",
+            "target_duration_mode": args.target_duration_mode,
             "asr_backend": args.asr_backend,
             "reuse_asr": not args.no_reuse_asr,
             "custom_clips": args.custom_clips,
@@ -862,6 +975,8 @@ def main() -> int:
                 n_threads=args.n_threads,
                 subtitle_enabled=args.subtitle_enabled,
                 reuse_asr=not args.no_reuse_asr,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
             )
         except Exception as exc:
             failures += 1
@@ -875,6 +990,8 @@ def main() -> int:
                 method_version=args.method_version,
                 started_at=task_started_at,
                 exc=exc,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
             )
         finally:
             write_run_index(

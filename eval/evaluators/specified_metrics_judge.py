@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from eval.evaluators.vlm_judge import VLMJudge, _extract_json
+from eval.target_duration import effective_target_output_length_sec
 
 SYSTEM_PROMPT = """You are a strict evaluator for prompt-specified short-form video editing metrics. Score only what is visible in the provided video and described task metadata. Return JSON only."""
 
@@ -201,7 +202,7 @@ Task type: {task['task']['type']} ({task['task'].get('type_zh', '')})
 Source video title: {task['video'].get('title_en') or task['video'].get('title_zh') or task['video'].get('id')}
 BGM title: {task['audio'].get('title') or task['audio'].get('id')}
 BGM mood tags: {', '.join(task['audio'].get('mood_tags') or [])}
-Target output length: {task['task']['target_output_length_sec']}s
+Target output length: {effective_target_output_length_sec(task, run_record)}s
 Actual output length: {run_record.get('actual_output_length_sec')}s
 
 Score only these metrics on a 1-5 Likert scale using their metric-specific anchors:

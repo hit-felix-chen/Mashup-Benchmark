@@ -179,6 +179,13 @@
             },
             "dry_run": {
               "type": "boolean"
+            },
+            "target_duration_mode": {
+              "enum": [
+                "task",
+                "music"
+              ],
+              "description": "Target-duration source shared by every task record in this adapter run."
             }
           }
         }

@@ -46,13 +46,15 @@ Required fields:
 - `video_id`, `audio_id`, `prompt_type`: copied from the task for easier joins.
 - `status`: `success`, `failed`, or `skipped`.
 - `output_video`: path to the generated video relative to benchmark root.
-- `target_output_length_sec`, `target_shot_length_sec`: target values used by the method.
+- `target_output_length_sec`: effective output target used by the method. Its meaning is selected by `target_duration_mode` below.
+- `target_shot_length_sec`: target average shot length used by the method.
 - `actual_output_length_sec`: measured final video duration.
 - `wall_clock_sec`: end-to-end generation time for this task.
 - `created_at`: ISO-8601 timestamp.
 
 Recommended optional fields:
 
+- `target_duration_mode`: `task` for the canonical task target or `music` for the full duration of the task's canonical BGM. Missing is interpreted as `task` for backward compatibility.
 - `api_cost_usd`: total API cost for the task.
 - `code_commit`: source code commit used for the method.
 - `config`: key model and algorithm settings.
@@ -76,6 +78,7 @@ Example:
   "status": "success",
   "output_video": "runs/cutmaster_embedding_v4_full/task_outputs/task_001/output.mp4",
   "target_output_length_sec": 60,
+  "target_duration_mode": "task",
   "target_shot_length_sec": 4.0,
   "actual_output_length_sec": 58.7,
   "wall_clock_sec": 1234.5,
@@ -95,6 +98,23 @@ Example:
 }
 ```
 
+### Target-duration modes
+
+The standard benchmark setting is `task`: `target_output_length_sec` must
+strictly equal the value in `data/tasks/mashup_benchmark.jsonl` (currently 60
+seconds). Legacy records without `target_duration_mode` are validated as
+`task` records.
+
+The `music` variant allows an experiment to use the complete BGM as its target.
+In that case, `target_duration_mode` must be explicitly set to `music`, and
+`target_output_length_sec` must equal the `ffprobe` duration of the canonical
+audio file bound to that task, within 0.001 seconds. The validator resolves the
+audio through the benchmark task metadata; a submission cannot choose its own
+audio path or asserted duration. Evaluators and both VLM judge prompts use this
+effective run-record target instead of the canonical 60-second task target.
+
+Report and compare `task` and `music` runs as separate experiment variants.
+
 ## `run_outputs.jsonl`
 
 `run_outputs.jsonl` duplicates the per-task `run_output.json` records as JSONL so evaluation scripts can stream a whole run without walking directories.
@@ -111,6 +131,11 @@ Failed tasks are allowed in a partial run. A failed task does not need `output.m
 ## `run_manifest.json`
 
 `run_manifest.json` stores global metadata for the whole baseline execution and must follow `schemas/run_manifest.schema.json`.
+
+Adapters that support duration variants should also write
+`adapter.options.target_duration_mode`. When present, it must agree with every
+per-task record in the run; use separate run ids rather than mixing `task` and
+`music` records.
 
 Example:
 

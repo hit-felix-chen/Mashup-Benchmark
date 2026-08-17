@@ -13,7 +13,7 @@ from typing import Any
 from eval.config import load_config
 from eval.evaluators.specified_metrics_judge import SpecifiedMetricsJudge
 from eval.evaluators.vlm_judge import VLMJudgeSkipped
-from eval.run_evaluation import ROOT, load_run_records, load_tasks, write_json
+from eval.run_evaluation import ROOT, load_run_records, load_tasks, validate_run_target_durations, write_json
 
 
 def parse_csv_args(values: list[str] | None) -> list[str]:
@@ -130,11 +130,12 @@ def main() -> int:
     )
     specified_metrics_dir = ROOT / "eval_results" / specified_metrics_id
 
-    config = load_config(args.config, require_vlm=True)
     tasks = load_tasks()
     run_records = load_run_records(run_dir)
     if args.limit is not None:
         run_records = run_records[: args.limit]
+    validate_run_target_durations(run_records, tasks)
+    config = load_config(args.config, require_vlm=True)
 
     requested_task_ids = set(parse_csv_args(args.task_ids))
     if requested_task_ids and not args.reuse_specified_metrics_id:

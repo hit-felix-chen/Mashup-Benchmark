@@ -15,6 +15,7 @@ from eval.config import load_config
 from eval.evaluators.cut_boundary_validator import CutBoundaryValidator
 from eval.evaluators.vlm_judge import VLMJudge, VLMJudgeSkipped
 from eval.metrics.alignment import audio_visual_energy_correspondence, beat_cut_synchronization
+from eval.target_duration import validate_target_output_length
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_FILE = ROOT / "data" / "tasks" / "mashup_benchmark.jsonl"
@@ -40,6 +41,24 @@ def load_run_records(run_dir: Path) -> list[dict[str, Any]]:
             if line.strip():
                 records.append(json.loads(line))
     return records
+
+
+def validate_run_target_durations(
+    run_records: list[dict[str, Any]],
+    tasks: dict[str, dict[str, Any]],
+    *,
+    benchmark_root: Path = ROOT,
+) -> None:
+    """Reject invalid duration variants before running any expensive metrics."""
+    for record in run_records:
+        task_id = record.get("task_id")
+        task = tasks.get(task_id)
+        if task is None:
+            raise ValueError(f"Unknown benchmark task in run output: {task_id!r}")
+        try:
+            validate_target_output_length(task, record, benchmark_root=benchmark_root)
+        except ValueError as exc:
+            raise ValueError(f"Invalid target duration for {task_id}: {exc}") from exc
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -144,6 +163,12 @@ def main() -> int:
     else:
         selected_metrics = set(BASE_METRICS)
 
+    tasks = load_tasks()
+    run_records = load_run_records(run_dir)
+    if args.limit is not None:
+        run_records = run_records[: args.limit]
+    validate_run_target_durations(run_records, tasks)
+
     require_vlm = bool(("BCS" in selected_metrics) or (selected_metrics & VLM_METRICS and not args.skip_vlm))
     config = load_config(args.config, require_vlm=require_vlm)
     auto_cfg = config.get("automatic_metrics", {})
@@ -157,11 +182,6 @@ def main() -> int:
         if "BCS" in selected_metrics
         else None
     )
-    tasks = load_tasks()
-    run_records = load_run_records(run_dir)
-    if args.limit is not None:
-        run_records = run_records[: args.limit]
-
     run_task_ids = {record["task_id"] for record in run_records}
     missing_task_ids = sorted(requested_task_ids - run_task_ids)
     if missing_task_ids:

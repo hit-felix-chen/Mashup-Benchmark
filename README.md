@@ -261,7 +261,7 @@ uv run python scripts/export_specified_metrics_table.py \
 
 CutMaster 通过 MASTER Editing Team 完成长视频音乐混剪：Material Analyst 建立可跨 task 复用的 Shot、Segment、台词和故事素材记忆；ASTER 团队中的 Arrangement Architect、Story Editor、Timeline Scout、Edit Composer 与 Revision Editor 随后依次完成节奏编排、故事锚定、候选空间构建、延迟 VLM 转场评分与 Beam Search 组接，以及候选空间内最终修订。最后对原片窗口进行切点优化，并用 FFmpeg 仅以原片片段硬切拼接。
 
-benchmark adapter `scripts/run_cutmaster.py` 通过隔离的 worker 把 benchmark task 转换为 `WorkflowRequest`，直接调用公共入口 `Orchestrator(config).run(request)`，并将成片、脚本、日志和运行元数据写入标准 `runs/<run_id>/` 结构。
+benchmark adapter `scripts/run_cutmaster.py` 通过隔离的 worker 把 benchmark task 转换为 `ExecuteManagedWorkflowCommand`。它在 CutMaster 中创建与 WebUI 相同的 Material、Project、ASTER Run、Frozen Edit 和 Render Variant，再把评测需要的成片与元数据复制到标准 `runs/<run_id>/` 结构。
 
 运行前准备：
 
@@ -304,6 +304,19 @@ uv run python scripts/run_cutmaster.py \
   --method-version master-team-v1
 ```
 
+让 `task_033`–`task_036` 分别以各自输入 BGM 的完整时长作为目标时长：
+
+```bash
+uv run python scripts/run_cutmaster.py \
+  --cutmaster-root /Users/xinfanchen/Project/CutMaster \
+  --cutmaster-python /Users/xinfanchen/Project/CutMaster/.venv/bin/python \
+  --cutmaster-config /Users/xinfanchen/Project/CutMaster/config.toml \
+  --task-id task_033 task_034 task_035 task_036 \
+  --target-duration-mode music \
+  --run-id cutmaster_tasks033_036_music_duration \
+  --method-version master-team-v1
+```
+
 CutMaster 特有参数和建议：
 
 | 参数 | 说明 |
@@ -313,10 +326,11 @@ CutMaster 特有参数和建议：
 | `--cutmaster-config` | CutMaster TOML 配置；默认使用 `<cutmaster-root>/config.toml`。 |
 | `--subtitle-path` | 单任务运行时可显式复用 SRT；省略时真实调用 Fun-ASR。 |
 | `--method-version` | 写入 manifest 的 CutMaster 实验标签；默认是 `master-team-v1`。 |
+| `--target-duration-mode task\|music` | 目标时长来源；默认 `task` 使用任务定义值，`music` 使用 `ffprobe` 读取的输入 BGM 完整时长。 |
 | `--dialogue-audio` | 在评测成片中加入选中的原声锚点；默认关闭，因此正常完整运行会直接输出标准 AAC 纯 BGM 版本。 |
-| `--overwrite` | 重新生成 task 输出，但不会删除 CutMaster 的素材级分析缓存。开发和失败重跑时使用。 |
+| `--overwrite` | 重新生成 benchmark task 输出，并在 CutMaster 中保留旧历史、创建新的 Project/Run/Render；不会删除素材级分析缓存。 |
 
-不传 `--overwrite` 时，已有成功状态且存在 `output.mp4` 的 task 会直接跳过；失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的 ASTER 协作与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/media/` Material Library 不会删除。同一 Material Type 下名称与已绑定内容指纹都一致的视频或音乐会幂等复用托管素材及已完成分析；同名但内容不同会直接报冲突，不会自动追加后缀。若上次只完成了部分视频分析，在同一字幕与分析规格下也会继续复用已有 checkpoint。
+不传 `--overwrite` 时，只有已有成功输出的目标时长模式和有效目标时长都与当前请求一致，task 才会直接跳过；旧记录未包含模式时按 `task` 处理。若模式或时长不同，adapter 会要求使用新的 `--run-id` 或显式传入 `--overwrite`，避免静默复用错误时长的成片。失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的 ASTER 协作与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/media/` Material Library 不会删除。同一 Material Type 下名称与已绑定内容指纹都一致的视频或音乐会幂等复用托管素材及已完成分析；同名但内容不同会直接报冲突，不会自动追加后缀。若上次只完成了部分视频分析，在同一字幕与分析规格下也会继续复用已有 checkpoint。`run_output.json` 的 `target_output_length_sec` 保存实际传给 CutMaster 的有效目标时长，`target_duration_mode` 保存其来源；运行 manifest 的 `adapter.options.target_duration_mode` 保存整次调用所选模式。
 
 主要输出位置：
 
@@ -328,7 +342,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 /Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` 按 `analyser/`、`planners/`、`renderer/` 保存三阶段产物：其中包括 Material Memory 索引、`planners_result.json`、`script_raw.json`、`render_plan.json`、诊断信息和 `renderer/output.mp4`。视频与音乐素材分析按 Material 保存而不是按 benchmark task 保存。终端日志按等级显示颜色；`logs/backend.log` 和 `artifacts/cutmaster/cutmaster.log` 保持无 ANSI 的纯文本。
+`artifacts/cutmaster/` 保存 adapter 回执以及从 CutMaster Application Data Root 复制出的评测副本，不再是 CutMaster 的权威 Workflow Bundle。adapter 通过托管回执中的逻辑键安全解析实际文件，拒绝不兼容的 manifest 主版本、缺失的必需键以及任何越出 Data Root 的路径。CutMaster 侧的 Material、Project、Run、Frozen Edit 和 Render Variant 会保留并可在 WebUI 中查看；`logs/backend.log` 保存 worker 子进程输出。
 
 运行完成后可用以下命令校验并评测：
 
@@ -415,6 +429,16 @@ uv run python scripts/run_narratoai.py \
   --run-id narratoai_benchmark
 ```
 
+如需让成片目标时长使用 benchmark 指定 BGM 的真实完整时长，而不是 task 中的标准 60 秒，可显式选择 `music` 模式：
+
+```bash
+uv run python scripts/run_narratoai.py \
+  --narratoai-root /Users/xinfanchen/Project/NarratoAI \
+  --task-id task_033 task_034 task_035 task_036 \
+  --target-duration-mode music \
+  --run-id narratoai_tasks033_036_music_duration
+```
+
 批量运行全部任务：
 
 ```bash
@@ -428,6 +452,7 @@ NarratoAI 特有参数：
 
 | 参数 | 说明 |
 | --- | --- |
+| `--target-duration-mode` | 目标时长来源：`task`（默认）使用任务定义的标准时长，`music` 使用 `ffprobe` 读取 benchmark BGM 的真实完整时长。 |
 | `--asr-backend` | 字幕转写后端，支持 `bailian`、`local`、`firered`；默认 `bailian`。 |
 | `--no-reuse-asr` | 即使已有 `artifacts/source.srt`，也重新转写字幕。默认复用已生成字幕。 |
 | `--custom-clips` | 请求 NarratoAI 生成的候选片段数；默认按 `target_output_length_sec / target_shot_length_sec` 估算。 |
@@ -448,6 +473,8 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/
 ```
 
 该 adapter 不修改 NarratoAI 核心代码，只通过外部 worker 调用 NarratoAI 的 ASR、短剧混剪脚本生成和视频合成服务，并把输出归一化到 benchmark 的 `runs/<run_id>/` 结构。
+
+选择 `music` 后，有效时长会同时用于候选片段数量估算、脚本后处理上限和 NarratoAI worker payload；NarratoAI 的 BGM 合成逻辑再按生成的视频时间线截取音频，因此不存在固定裁到 60 秒的额外步骤。`run_output.json` 的 `target_output_length_sec` 保存本次有效目标时长，`target_duration_mode` 保存其来源，run manifest 的 `adapter.options.target_duration_mode` 保存整次调用模式。旧记录缺少模式时按 `task` 解释；若同一 `run-id` 下已有成功成片的模式或有效时长不一致，adapter 会要求使用新的 `--run-id` 或显式传入 `--overwrite`。
 
 </details>
 

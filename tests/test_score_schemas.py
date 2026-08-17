@@ -17,6 +17,7 @@ class ScoreSchemaTests(unittest.TestCase):
     def setUp(self):
         self.evaluation_validator = load_validator("evaluation_score.schema.json")
         self.run_validator = load_validator("run_output.schema.json")
+        self.manifest_validator = load_validator("run_manifest.schema.json")
         self.evaluation_record = {
             "eval_id": "example_eval",
             "run_id": "example_run",
@@ -69,6 +70,44 @@ class ScoreSchemaTests(unittest.TestCase):
                 record = copy.deepcopy(self.run_record)
                 record[field] = {"OQ": 5.0}
                 self.assertTrue(list(self.run_validator.iter_errors(record)))
+
+    def test_run_output_accepts_declared_duration_modes(self):
+        for mode in ("task", "music"):
+            with self.subTest(mode=mode):
+                record = copy.deepcopy(self.run_record)
+                record["target_duration_mode"] = mode
+                self.run_validator.validate(record)
+
+    def test_run_output_rejects_unknown_duration_mode(self):
+        record = copy.deepcopy(self.run_record)
+        record["target_duration_mode"] = "audio"
+        self.assertTrue(list(self.run_validator.iter_errors(record)))
+
+    def test_run_manifest_adapter_rejects_unknown_duration_mode(self):
+        manifest = {
+            "run_id": "example_run",
+            "method": "Example",
+            "benchmark": "Mashup-Benchmark",
+            "task_file": "data/tasks/mashup_benchmark.jsonl",
+            "created_at": "2026-08-01T00:00:00+08:00",
+            "status": "success",
+            "num_tasks": 1,
+            "run_outputs": "runs/example_run/run_outputs.jsonl",
+            "adapter": {
+                "name": "run_cutmaster",
+                "script": "scripts/run_cutmaster.py",
+                "project_root": "/tmp/CutMaster",
+                "python": "/tmp/CutMaster/.venv/bin/python",
+                "benchmark_root": "/tmp/Mashup-Benchmark",
+                "results_root": "runs",
+                "task_selection": {"mode": "task_ids", "task_ids": ["task_001"]},
+                "options": {"target_duration_mode": "audio"},
+            },
+        }
+
+        errors = list(self.manifest_validator.iter_errors(manifest))
+
+        self.assertTrue(errors)
 
 
 if __name__ == "__main__":

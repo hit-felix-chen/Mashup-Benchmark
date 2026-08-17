@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import platform
 import re
@@ -13,7 +14,7 @@ import sys
 import time
 import traceback
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,35 @@ TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 CUTMASTER_REPOSITORY_URL = "https://github.com/hit-cxf/CutMaster"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 CUTMASTER_WORKER_REL = Path("scripts/cutmaster_adapter_worker.py")
+CUTMASTER_APPLICATION_ENTRYPOINT = (
+    "CutMasterApplication.open(config).workflows.execute_and_wait("
+    "ExecuteManagedWorkflowCommand(...))"
+)
+ARTIFACT_MANIFEST_MAJOR_VERSION = 1
+ARTIFACT_MANIFEST_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+ARTIFACT_LOGICAL_KEY_RE = re.compile(r"^[a-z0-9_]+(?:\.[a-z0-9_]+)+$")
+REQUIRED_CUTMASTER_ARTIFACT_KEYS = frozenset(
+    {
+        "workflow.result",
+        "workflow.model_usage",
+        "analyser.video_result",
+        "analyser.music_result",
+        "planners.render_plan",
+        "renderer.output_video",
+    }
+)
+BENCHMARK_ARTIFACT_KEYS = {
+    "analysis_result": "analyser.video_result",
+    "music_analysis_result": "analyser.music_result",
+    "planners_result": "planners.result",
+    "render_result": "renderer.result",
+    "script_raw": "planners.raw_script",
+    "render_plan": "planners.render_plan",
+    "dialogues_json": "analyser.dialogues",
+    "processed_subtitle": "analyser.dialogue_subtitle",
+    "cutmaster_result": "workflow.result",
+}
+TARGET_DURATION_MODES = ("task", "music")
 
 
 def now_iso() -> str:
@@ -102,12 +132,84 @@ def stream_command(command: list[str], log_path: Path, cwd: Path) -> int:
 def ffprobe_duration(path: Path) -> float:
     output = subprocess.check_output(
         [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
         ],
         text=True,
     ).strip()
     return float(output)
+
+
+def resolve_target_output_length_sec(
+    task: dict[str, Any],
+    audio: Path,
+    target_duration_mode: str,
+) -> float:
+    if target_duration_mode == "task":
+        duration = float(task["task"]["target_output_length_sec"])
+    elif target_duration_mode == "music":
+        duration = ffprobe_duration(audio)
+    else:
+        raise ValueError(f"Unsupported target duration mode: {target_duration_mode!r}")
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError(
+            f"Resolved target output duration must be positive and finite, got {duration!r} "
+            f"from {target_duration_mode!r} mode"
+        )
+    return duration
+
+
+def _record_matches_target(
+    record: dict[str, Any],
+    *,
+    target_duration_mode: str,
+    target_output_length_sec: float,
+) -> bool:
+    recorded_mode = record.get("target_duration_mode", "task")
+    try:
+        recorded_target = float(record["target_output_length_sec"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return recorded_mode == target_duration_mode and math.isclose(
+        recorded_target,
+        target_output_length_sec,
+        rel_tol=1e-9,
+        abs_tol=1e-6,
+    )
+
+
+def reusable_success_record(
+    task_dir: Path,
+    *,
+    overwrite: bool,
+    target_duration_mode: str,
+    target_output_length_sec: float,
+) -> dict[str, Any] | None:
+    output_video = task_dir / "output.mp4"
+    existing = load_record(task_dir)
+    if overwrite or not output_video.exists() or (existing or {}).get("status") != "success":
+        return None
+    assert existing is not None
+    if _record_matches_target(
+        existing,
+        target_duration_mode=target_duration_mode,
+        target_output_length_sec=target_output_length_sec,
+    ):
+        return existing
+    recorded_mode = existing.get("target_duration_mode", "task")
+    recorded_target = existing.get("target_output_length_sec")
+    raise RuntimeError(
+        "Existing successful output uses a different target duration "
+        f"(mode={recorded_mode!r}, target={recorded_target!r}); requested "
+        f"mode={target_duration_mode!r}, target={target_output_length_sec!r}. "
+        "Use --overwrite or a new --run-id."
+    )
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -117,6 +219,62 @@ def write_json(path: Path, value: Any) -> None:
 
 def relative(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+def _normalize_artifact_path(value: str) -> PurePosixPath:
+    if not isinstance(value, str):
+        raise TypeError("CutMaster Artifact Manifest paths must be strings")
+    if not value or "\\" in value or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError(f"Invalid CutMaster artifact path: {value!r}")
+    path = PurePosixPath(value)
+    if path.is_absolute() or str(path) != value or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError(f"Invalid CutMaster artifact path: {value!r}")
+    return path
+
+
+def _resolve_artifact_path(artifact_root: Path, value: str) -> Path:
+    relative_path = _normalize_artifact_path(value)
+    canonical_root = artifact_root.resolve(strict=True)
+    if not canonical_root.is_dir():
+        raise ValueError("CutMaster managed artifact root must be a directory")
+    try:
+        artifact = canonical_root.joinpath(*relative_path.parts).resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"CutMaster artifact is missing: {value}") from exc
+    try:
+        artifact.relative_to(canonical_root)
+    except ValueError as exc:
+        raise ValueError("CutMaster artifact path escapes its managed artifact root") from exc
+    if not artifact.is_file():
+        raise ValueError(f"CutMaster artifact is not a file: {value}")
+    return artifact
+
+
+def resolve_cutmaster_artifacts(
+    artifact_root: Path,
+    result: dict[str, Any],
+) -> dict[str, Path]:
+    version = result.get("artifact_manifest_version")
+    if not isinstance(version, str):
+        raise TypeError("CutMaster result has no string artifact_manifest_version")
+    match = ARTIFACT_MANIFEST_VERSION_RE.fullmatch(version)
+    if match is None or int(match.group(1)) != ARTIFACT_MANIFEST_MAJOR_VERSION:
+        raise ValueError(f"Unsupported CutMaster Artifact Manifest version: {version!r}")
+    manifest = result.get("artifacts")
+    if not isinstance(manifest, dict):
+        raise TypeError("CutMaster result has no Artifact Manifest mapping")
+    invalid_keys = sorted(
+        repr(key) for key in manifest if not isinstance(key, str) or ARTIFACT_LOGICAL_KEY_RE.fullmatch(key) is None
+    )
+    if invalid_keys:
+        raise ValueError(f"Invalid CutMaster artifact logical keys: {invalid_keys}")
+    missing = sorted(REQUIRED_CUTMASTER_ARTIFACT_KEYS - set(manifest))
+    if missing:
+        raise ValueError(f"CutMaster Artifact Manifest is missing keys: {missing}")
+    return {
+        logical_key: _resolve_artifact_path(artifact_root, value)
+        for logical_key, value in manifest.items()
+    }
 
 
 def copy_artifact(source: Path, destination: Path) -> str | None:
@@ -204,22 +362,38 @@ def run_task(
     overwrite: bool,
     subtitle: Path | None,
     dialogue_audio: bool,
+    target_duration_mode: str = "task",
+    target_output_length_sec: float | None = None,
 ) -> dict[str, Any]:
     task_id = task["id"]
+    if target_duration_mode not in TARGET_DURATION_MODES:
+        raise ValueError(f"Unsupported target duration mode: {target_duration_mode!r}")
     task_dir = run_dir / "task_outputs" / task_id
     logs_dir = task_dir / "logs"
     artifacts_dir = task_dir / "artifacts"
     work_dir = artifacts_dir / "cutmaster"
+    adapter_result = work_dir / "adapter_result.json"
     output_video = task_dir / "output.mp4"
-    existing = load_record(task_dir)
-    if output_video.exists() and not overwrite and (existing or {}).get("status") == "success":
-        print(f"[{task_id}] reusing successful output: {output_video}")
-        return existing
-
     video = benchmark_root / task["video"]["local_path"]
     audio = benchmark_root / task["audio"]["local_path"]
     if not video.is_file() or not audio.is_file():
         raise FileNotFoundError(f"Missing benchmark media: video={video.is_file()}, audio={audio.is_file()}")
+    effective_target = (
+        resolve_target_output_length_sec(task, audio, target_duration_mode)
+        if target_output_length_sec is None
+        else float(target_output_length_sec)
+    )
+    if not math.isfinite(effective_target) or effective_target <= 0:
+        raise ValueError(f"target_output_length_sec must be positive and finite, got {effective_target!r}")
+    existing = reusable_success_record(
+        task_dir,
+        overwrite=overwrite,
+        target_duration_mode=target_duration_mode,
+        target_output_length_sec=effective_target,
+    )
+    if existing is not None:
+        print(f"[{task_id}] reusing successful output: {output_video}")
+        return existing
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     write_json(artifacts_dir / "benchmark_task.json", task)
@@ -227,66 +401,74 @@ def run_task(
     started = time.monotonic()
     worker = benchmark_root / CUTMASTER_WORKER_REL
     command = [
-        str(python), str(worker),
-        "--video", str(video),
-        "--audio", str(audio),
-        "--prompt", task["task"]["prompt"],
-        "--output-dir", str(work_dir),
-        "--config", str(config),
-        "--target-duration", str(task["task"]["target_output_length_sec"]),
-        "--target-shot-length", str(task["task"]["target_shot_length_sec"]),
-        "--prompt-type", task["task"]["type"],
-        "--video-title", task["video"].get("title_zh") or task["video"].get("title_en") or "",
+        str(python),
+        str(worker),
+        "--video",
+        str(video),
+        "--audio",
+        str(audio),
+        "--prompt",
+        task["task"]["prompt"],
+        "--result-file",
+        str(adapter_result),
+        "--config",
+        str(config),
+        "--target-duration",
+        str(effective_target),
+        "--target-shot-length",
+        str(task["task"]["target_shot_length_sec"]),
+        "--prompt-type",
+        task["task"]["type"],
+        "--video-title",
+        task["video"].get("title_zh") or task["video"].get("title_en") or "",
+        "--video-material-name",
+        (task["video"].get("material_name") or Path(task["video"]["local_path"]).stem),
+        "--music-material-name",
+        (task["audio"].get("material_name") or Path(task["audio"]["local_path"]).stem),
+        "--project-name",
+        f"Benchmark · {run_id} · {task_id}",
         "--dialogue-audio" if dialogue_audio else "--no-dialogue-audio",
     ]
     if subtitle:
         command += ["--subtitle", str(subtitle)]
-    if overwrite:
-        command.append("--overwrite")
-
     return_code = stream_command(command, logs_dir / "backend.log", project_root)
     if return_code:
         raise RuntimeError(f"CutMaster exited with code {return_code}")
-    result = json.loads((work_dir / "result.json").read_text(encoding="utf-8"))
-    shutil.copy2(work_dir / "renderer" / "output.mp4", output_video)
+    result_path = adapter_result
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    if result.get("status") != "success":
+        raise ValueError("CutMaster returned a non-success WorkflowResult")
+    raw_artifact_root = result.get("artifact_root")
+    if not isinstance(raw_artifact_root, str):
+        raise TypeError("CutMaster managed result has no artifact_root")
+    artifact_root = Path(raw_artifact_root)
+    if not artifact_root.is_absolute():
+        raise ValueError("CutMaster managed artifact_root must be absolute")
+    cutmaster_artifacts = resolve_cutmaster_artifacts(artifact_root, result)
+    shutil.copy2(cutmaster_artifacts["renderer.output_video"], output_video)
+    exported_artifacts: dict[str, Path] = {}
+    for logical_key, source in cutmaster_artifacts.items():
+        destination = (
+            work_dir
+            / "managed_artifacts"
+            / Path(*logical_key.split("."))
+            / source.name
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        exported_artifacts[logical_key] = destination
     artifact_map = {
         "benchmark_task": relative(artifacts_dir / "benchmark_task.json", benchmark_root),
-        "analysis_result": relative(
-            work_dir / "analyser" / "analysis_result.json",
-            benchmark_root,
-        ),
-        "music_analysis_result": relative(
-            work_dir / "analyser" / "music" / "music_analysis_result.json",
-            benchmark_root,
-        ),
-        "planners_result": relative(
-            work_dir / "planners" / "planners_result.json",
-            benchmark_root,
-        ),
-        "render_result": relative(
-            work_dir / "renderer" / "render_result.json",
-            benchmark_root,
-        ),
-        "script_raw": relative(
-            work_dir / "planners" / "script_raw.json",
-            benchmark_root,
-        ),
-        "render_plan": relative(
-            work_dir / "planners" / "render_plan.json",
-            benchmark_root,
-        ),
-        "dialogues_json": relative(
-            work_dir / "analyser" / "dialogues.json",
-            benchmark_root,
-        ),
-        "processed_subtitle": relative(
-            work_dir / "analyser" / "dialogue_merged.srt",
-            benchmark_root,
-        ),
-        "cutmaster_result": relative(work_dir / "result.json", benchmark_root),
         "backend_log": relative(logs_dir / "backend.log", benchmark_root),
-        "cutmaster_log": relative(work_dir / "cutmaster.log", benchmark_root),
+        "adapter_result": relative(adapter_result, benchmark_root),
     }
+    artifact_map.update(
+        {
+            benchmark_key: relative(exported_artifacts[logical_key], benchmark_root)
+            for benchmark_key, logical_key in BENCHMARK_ARTIFACT_KEYS.items()
+            if logical_key in exported_artifacts
+        }
+    )
     ended_at = now_iso()
     record = {
         "run_id": run_id,
@@ -298,7 +480,8 @@ def run_task(
         "prompt_type": task["task"]["type"],
         "status": "success",
         "output_video": relative(output_video, benchmark_root),
-        "target_output_length_sec": float(task["task"]["target_output_length_sec"]),
+        "target_duration_mode": target_duration_mode,
+        "target_output_length_sec": effective_target,
         "target_shot_length_sec": float(task["task"]["target_shot_length_sec"]),
         "actual_output_length_sec": ffprobe_duration(output_video),
         "wall_clock_sec": time.monotonic() - started,
@@ -310,12 +493,14 @@ def run_task(
         "config": {
             "cutmaster_config": str(config),
             "subtitle_source": str(subtitle) if subtitle else "dashscope_fun_asr",
-            "dialogue_audio_included": bool(
-                result.get("dialogue_audio_included", dialogue_audio)
-            ),
+            "dialogue_audio_included": bool(result.get("dialogue_audio_included", dialogue_audio)),
             "stage_timings_sec": result.get("stage_timings_sec", {}),
             "num_raw_clips": result.get("num_raw_clips"),
             "num_planned_clips": result.get("num_planned_clips"),
+            "cutmaster_project_id": result.get("project_id"),
+            "cutmaster_run_id": result.get("run_id"),
+            "cutmaster_frozen_edit_id": result.get("frozen_edit_id"),
+            "cutmaster_render_variant_id": result.get("render_variant_id"),
         },
         "artifacts": artifact_map,
         "error": None,
@@ -325,12 +510,26 @@ def run_task(
 
 
 def write_failure(
-    task: dict[str, Any], benchmark_root: Path, run_dir: Path, run_id: str,
-    method: str, method_version: str, started_at: str, exc: BaseException,
+    task: dict[str, Any],
+    benchmark_root: Path,
+    run_dir: Path,
+    run_id: str,
+    method: str,
+    method_version: str,
+    started_at: str,
+    exc: BaseException,
+    *,
+    target_duration_mode: str = "task",
+    target_output_length_sec: float | None = None,
 ) -> None:
     task_dir = run_dir / "task_outputs" / task["id"]
     output = task_dir / "output.mp4"
     ended_at = now_iso()
+    effective_target = (
+        float(task["task"]["target_output_length_sec"])
+        if target_output_length_sec is None
+        else float(target_output_length_sec)
+    )
     write_json(
         task_dir / "run_output.json",
         {
@@ -343,7 +542,8 @@ def write_failure(
             "prompt_type": task["task"]["type"],
             "status": "failed",
             "output_video": relative(output, benchmark_root),
-            "target_output_length_sec": float(task["task"]["target_output_length_sec"]),
+            "target_duration_mode": target_duration_mode,
+            "target_output_length_sec": effective_target,
             "target_shot_length_sec": float(task["task"]["target_shot_length_sec"]),
             "actual_output_length_sec": 0.0,
             "wall_clock_sec": 0.0,
@@ -370,16 +570,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default="cutmaster_benchmark")
     parser.add_argument("--method", default="CutMaster")
     parser.add_argument("--method-version", default="master-team-v1")
-    parser.add_argument("--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR.")
+    parser.add_argument(
+        "--target-duration-mode",
+        choices=TARGET_DURATION_MODES,
+        default="task",
+        help=(
+            "Choose the effective output target: 'task' uses the benchmark task value; "
+            "'music' probes and uses the full input BGM duration."
+        ),
+    )
+    parser.add_argument(
+        "--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR."
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--dialogue-audio",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help=(
-            "Include selected original-dialogue anchors. "
-            "The default benchmark output is BGM-only."
-        ),
+        help=("Include selected original-dialogue anchors. The default benchmark output is BGM-only."),
     )
     return parser.parse_args()
 
@@ -422,14 +630,35 @@ def main() -> int:
     if subtitle and not subtitle.is_file():
         raise SystemExit(f"Subtitle not found: {subtitle}")
 
+    effective_targets: dict[str, float] = {}
+    for task in selected:
+        audio = benchmark_root / task["audio"]["local_path"]
+        if not audio.is_file():
+            raise SystemExit(f"Audio not found for {task['id']}: {audio}")
+        effective_targets[task["id"]] = resolve_target_output_length_sec(
+            task,
+            audio,
+            args.target_duration_mode,
+        )
+
     run_dir = results_root / args.run_id
+    for task in selected:
+        try:
+            reusable_success_record(
+                run_dir / "task_outputs" / task["id"],
+                overwrite=args.overwrite,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
+            )
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
     run_dir.mkdir(parents=True, exist_ok=True)
     started_at = now_iso()
     adapter = {
         "name": "run_cutmaster",
         "script": "scripts/run_cutmaster.py",
         "worker": CUTMASTER_WORKER_REL.as_posix(),
-        "entrypoint": "Orchestrator(config).run(WorkflowRequest(...))",
+        "entrypoint": CUTMASTER_APPLICATION_ENTRYPOINT,
         "project_root": str(project_root),
         "python": str(python),
         "benchmark_root": str(benchmark_root),
@@ -443,6 +672,7 @@ def main() -> int:
             "config": str(config),
             "subtitle_path": str(subtitle) if subtitle else None,
             "dialogue_audio": bool(args.dialogue_audio),
+            "target_duration_mode": args.target_duration_mode,
         },
     }
     failures = 0
@@ -463,15 +693,35 @@ def main() -> int:
                 overwrite=args.overwrite,
                 subtitle=subtitle,
                 dialogue_audio=args.dialogue_audio,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
             )
         except Exception as exc:
             failures += 1
             print(f"[{task['id']}] FAILED: {exc}")
-            write_failure(task, benchmark_root, run_dir, args.run_id, args.method, args.method_version, task_started, exc)
+            write_failure(
+                task,
+                benchmark_root,
+                run_dir,
+                args.run_id,
+                args.method,
+                args.method_version,
+                task_started,
+                exc,
+                target_duration_mode=args.target_duration_mode,
+                target_output_length_sec=effective_targets[task["id"]],
+            )
         finally:
             write_run_index(
-                run_dir, benchmark_root, args.run_id, args.method, args.method_version,
-                started_at, project_root, python, adapter,
+                run_dir,
+                benchmark_root,
+                args.run_id,
+                args.method,
+                args.method_version,
+                started_at,
+                project_root,
+                python,
+                adapter,
             )
     print(f"Run directory: {run_dir}")
     return 1 if failures else 0

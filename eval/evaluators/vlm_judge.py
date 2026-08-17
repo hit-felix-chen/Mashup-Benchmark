@@ -14,6 +14,8 @@ from typing import Any
 import dashscope
 from dashscope import MultiModalConversation
 
+from eval.target_duration import effective_target_output_length_sec
+
 SYSTEM_PROMPT = """You are a strict evaluator for short-form video editing benchmarks. Score only what is visible in the provided video and described task metadata. Return JSON only."""
 
 USER_PROMPT_TEMPLATE = """
@@ -84,6 +86,18 @@ Return a JSON object exactly like:
   }}
 }}
 """.strip()
+
+
+def _prompt_for_run(task: dict[str, Any], run_record: dict[str, Any]) -> str:
+    return USER_PROMPT_TEMPLATE.format(
+        prompt=task["task"]["prompt"],
+        task_type=task["task"]["type"],
+        video_title=task["video"].get("title_en") or task["video"].get("title_zh") or task["video"].get("id"),
+        audio_title=task["audio"].get("title") or task["audio"].get("id"),
+        target_output_length_sec=effective_target_output_length_sec(task, run_record),
+        target_shot_length_sec=task["task"]["target_shot_length_sec"],
+        actual_output_length_sec=run_record.get("actual_output_length_sec"),
+    )
 
 
 def _video_content(path: Path) -> dict[str, Any]:
@@ -380,15 +394,7 @@ class VLMJudge:
                 f"> {self.max_video_mb:.1f} MB"
             )
 
-        user_text = USER_PROMPT_TEMPLATE.format(
-            prompt=task["task"]["prompt"],
-            task_type=task["task"]["type"],
-            video_title=task["video"].get("title_en") or task["video"].get("title_zh") or task["video"].get("id"),
-            audio_title=task["audio"].get("title") or task["audio"].get("id"),
-            target_output_length_sec=task["task"]["target_output_length_sec"],
-            target_shot_length_sec=task["task"]["target_shot_length_sec"],
-            actual_output_length_sec=run_record.get("actual_output_length_sec"),
-        )
+        user_text = _prompt_for_run(task, run_record)
         if self.provider == "dashscope":
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},

@@ -116,6 +116,14 @@
       "type": "number",
       "exclusiveMinimum": 0
     },
+    "target_duration_mode": {
+      "enum": [
+        "task",
+        "music"
+      ],
+      "default": "task",
+      "description": "How target_output_length_sec was selected. Missing is interpreted as task for legacy records; music means the canonical task BGM duration."
+    },
     "target_shot_length_sec": {
       "type": "number",
       "exclusiveMinimum": 0

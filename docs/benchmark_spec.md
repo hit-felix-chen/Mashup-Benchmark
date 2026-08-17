@@ -10,6 +10,13 @@ One benchmark item is a tuple:
 
 The system output is one complete short video for that item. Canonical task ids follow `task_<index>`, from `task_001` to `task_040`.
 
+The canonical benchmark uses `target_duration_mode: task`. A run may explicitly
+declare the optional `music` duration variant, in which the effective target is
+the full duration of the canonical BGM bound to the task. The run record stores
+that effective value in `target_output_length_sec`; validators verify it against
+the canonical audio file, and evaluators use it for length-sensitive judging.
+Results from the two duration modes should not be pooled as the same setting.
+
 ## Task Types
 
 - Event: asks for salient events or action moments.
