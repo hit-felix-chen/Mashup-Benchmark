@@ -342,7 +342,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 /Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` 保存 adapter 回执以及从 CutMaster Application Data Root 复制出的评测副本，不再是 CutMaster 的权威 Workflow Bundle。adapter 通过托管回执中的逻辑键安全解析实际文件，拒绝不兼容的 manifest 主版本、缺失的必需键以及任何越出 Data Root 的路径。CutMaster 侧的 Material、Project、Run、Frozen Edit 和 Render Variant 会保留并可在 WebUI 中查看；`logs/backend.log` 保存 worker 子进程输出。
+`artifacts/cutmaster/` 保存 adapter 回执以及从 CutMaster Application Data Root 复制出的评测副本，不再是 CutMaster 的权威 Workflow Bundle。adapter 通过托管回执中的逻辑键安全解析实际文件，拒绝不兼容的 manifest 主版本、缺失的必需键以及任何越出 Data Root 的路径。CutMaster 侧的 Material、Project、Run、Frozen Edit、Render Variant 及其 Job 日志会保留并可在 WebUI 中查看。adapter 不重定向 worker 的标准输出或标准错误；`logs/backend.log` 是 CutMaster 托管的完整同步流程日志 `workflow.log` 的原样评测副本。
 
 运行完成后可用以下命令校验并评测：
 

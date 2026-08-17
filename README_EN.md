@@ -342,7 +342,7 @@ runs/<run_id>/task_outputs/<task_id>/artifacts/cutmaster/
 /Users/xinfanchen/Project/CutMaster/.cutmaster/media/
 ```
 
-`artifacts/cutmaster/` stores the adapter receipt and evaluation copies exported from CutMaster's Application Data Root; it is no longer the authoritative CutMaster Workflow Bundle. The adapter resolves logical keys from the managed receipt, rejects unsupported manifest versions, missing required keys, and paths escaping the Data Root. CutMaster retains Web-visible Material, Project, Run, Frozen Edit, and Render Variant history. `logs/backend.log` records worker subprocess output.
+`artifacts/cutmaster/` stores the adapter receipt and evaluation copies exported from CutMaster's Application Data Root; it is no longer the authoritative CutMaster Workflow Bundle. The adapter resolves logical keys from the managed receipt, rejects unsupported manifest versions, missing required keys, and paths escaping the Data Root. CutMaster retains Web-visible Material, Project, Run, Frozen Edit, Render Variant, and Job-log history. The adapter does not redirect the worker's standard output or standard error; `logs/backend.log` is an exact evaluation copy of CutMaster's managed full synchronous-workflow log, `workflow.log`.
 
 After generation, validate and evaluate with:
 

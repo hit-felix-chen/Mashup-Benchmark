@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -22,7 +23,6 @@ DEFAULT_CUTMASTER_ROOT = BENCHMARK_ROOT.parent / "CutMaster"
 DEFAULT_RESULTS_ROOT = BENCHMARK_ROOT / "runs"
 TASK_FILE_REL = Path("data/tasks/mashup_benchmark.jsonl")
 CUTMASTER_REPOSITORY_URL = "https://github.com/hit-cxf/CutMaster"
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 CUTMASTER_WORKER_REL = Path("scripts/cutmaster_adapter_worker.py")
 CUTMASTER_APPLICATION_ENTRYPOINT = (
     "CutMasterApplication.open(config).workflows.execute_and_wait("
@@ -35,6 +35,7 @@ REQUIRED_CUTMASTER_ARTIFACT_KEYS = frozenset(
     {
         "workflow.result",
         "workflow.model_usage",
+        "workflow.log",
         "analyser.video_result",
         "analyser.music_result",
         "planners.render_plan",
@@ -105,28 +106,15 @@ def repo_info(project_root: Path) -> dict[str, Any]:
     return info
 
 
-def stream_command(command: list[str], log_path: Path, cwd: Path) -> int:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+def run_command(command: list[str], cwd: Path) -> int:
+    """Run the isolated worker without taking ownership of its output streams."""
+
     display = shlex.join(command)
     print(f"$ {display}")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    with log_path.open("w", encoding="utf-8") as log:
-        log.write(f"$ {display}\n\n")
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="")
-            log.write(ANSI_ESCAPE_RE.sub("", line))
-        return process.wait()
+    completed = subprocess.run(command, cwd=cwd, env=env, check=False)
+    return completed.returncode
 
 
 def ffprobe_duration(path: Path) -> float:
@@ -302,6 +290,64 @@ def collect_records(run_dir: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _load_manifest(run_dir: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _merged_adapter_metadata(
+    existing_manifest: dict[str, Any] | None,
+    adapter: dict[str, Any],
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    existing_adapter = (
+        existing_manifest.get("adapter")
+        if isinstance(existing_manifest, dict)
+        else None
+    )
+    merged = copy.deepcopy(
+        existing_adapter if isinstance(existing_adapter, dict) else adapter
+    )
+    for key, value in adapter.items():
+        if key not in merged:
+            merged[key] = copy.deepcopy(value)
+
+    existing_selection = (
+        existing_adapter.get("task_selection")
+        if isinstance(existing_adapter, dict)
+        else None
+    )
+    current_selection = adapter.get("task_selection")
+    selections = [
+        value
+        for value in (existing_selection, current_selection)
+        if isinstance(value, dict)
+    ]
+    task_ids = {
+        str(task_id)
+        for selection in selections
+        for task_id in selection.get("task_ids", [])
+        if isinstance(task_id, str)
+    }
+    task_ids.update(
+        str(record["task_id"])
+        for record in records
+        if isinstance(record.get("task_id"), str)
+    )
+    merged["task_selection"] = {
+        "mode": (
+            "all"
+            if any(selection.get("mode") == "all" for selection in selections)
+            else "task_ids"
+        ),
+        "task_ids": sorted(task_ids),
+    }
+    return merged
+
+
 def write_run_index(
     run_dir: Path,
     benchmark_root: Path,
@@ -314,38 +360,55 @@ def write_run_index(
     adapter: dict[str, Any],
 ) -> None:
     records = collect_records(run_dir)
+    existing_manifest = _load_manifest(run_dir)
     outputs_path = run_dir / "run_outputs.jsonl"
     with outputs_path.open("w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     successes = sum(record.get("status") == "success" for record in records)
     failures = sum(record.get("status") == "failed" for record in records)
-    status = "success" if records and failures == 0 else "failed" if records and successes == 0 else "partial"
-    write_json(
-        run_dir / "run_manifest.json",
+    status = (
+        "success"
+        if records and failures == 0
+        else "failed"
+        if records and successes == 0
+        else "partial"
+    )
+    preserved = copy.deepcopy(existing_manifest or {})
+    preserved.update(
         {
             "run_id": run_id,
-            "method": method,
-            "method_version": method_version,
-            "benchmark": "Mashup-Benchmark",
-            "task_file": TASK_FILE_REL.as_posix(),
-            "created_at": started_at,
-            "started_at": started_at,
+            "method": preserved.get("method", method),
+            "method_version": preserved.get("method_version", method_version),
+            "benchmark": preserved.get("benchmark", "Mashup-Benchmark"),
+            "task_file": preserved.get("task_file", TASK_FILE_REL.as_posix()),
+            "created_at": preserved.get("created_at", started_at),
+            "started_at": preserved.get("started_at", started_at),
             "ended_at": now_iso(),
             "status": status,
             "num_tasks": len(records),
             "num_success": successes,
             "num_failed": failures,
             "run_outputs": relative(outputs_path, benchmark_root),
-            "code": repo_info(project_root),
-            "environment": {"platform": platform.platform(), "python": str(python)},
-            "adapter": adapter,
+            "code": preserved.get("code") or repo_info(project_root),
+            "environment": preserved.get("environment")
+            or {"platform": platform.platform(), "python": str(python)},
+            "adapter": _merged_adapter_metadata(
+                existing_manifest,
+                adapter,
+                records,
+            ),
             "aggregate": {
-                "total_wall_clock_sec": sum(float(row.get("wall_clock_sec") or 0) for row in records),
-                "total_api_cost_usd": sum(float(row.get("api_cost_usd") or 0) for row in records),
+                "total_wall_clock_sec": sum(
+                    float(row.get("wall_clock_sec") or 0) for row in records
+                ),
+                "total_api_cost_usd": sum(
+                    float(row.get("api_cost_usd") or 0) for row in records
+                ),
             },
-        },
+        }
     )
+    write_json(run_dir / "run_manifest.json", preserved)
 
 
 def run_task(
@@ -431,7 +494,7 @@ def run_task(
     ]
     if subtitle:
         command += ["--subtitle", str(subtitle)]
-    return_code = stream_command(command, logs_dir / "backend.log", project_root)
+    return_code = run_command(command, project_root)
     if return_code:
         raise RuntimeError(f"CutMaster exited with code {return_code}")
     result_path = adapter_result
@@ -457,9 +520,12 @@ def run_task(
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         exported_artifacts[logical_key] = destination
+    backend_log = logs_dir / "backend.log"
+    backend_log.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(cutmaster_artifacts["workflow.log"], backend_log)
     artifact_map = {
         "benchmark_task": relative(artifacts_dir / "benchmark_task.json", benchmark_root),
-        "backend_log": relative(logs_dir / "backend.log", benchmark_root),
+        "backend_log": relative(backend_log, benchmark_root),
         "adapter_result": relative(adapter_result, benchmark_root),
     }
     artifact_map.update(
@@ -642,9 +708,10 @@ def main() -> int:
         )
 
     run_dir = results_root / args.run_id
+    reusable_records: dict[str, dict[str, Any]] = {}
     for task in selected:
         try:
-            reusable_success_record(
+            reusable = reusable_success_record(
                 run_dir / "task_outputs" / task["id"],
                 overwrite=args.overwrite,
                 target_duration_mode=args.target_duration_mode,
@@ -652,6 +719,8 @@ def main() -> int:
             )
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
+        if reusable is not None:
+            reusable_records[task["id"]] = reusable
     run_dir.mkdir(parents=True, exist_ok=True)
     started_at = now_iso()
     adapter = {
@@ -677,6 +746,10 @@ def main() -> int:
     }
     failures = 0
     for index, task in enumerate(selected, start=1):
+        if task["id"] in reusable_records:
+            output_video = run_dir / "task_outputs" / task["id"] / "output.mp4"
+            print(f"\n[{index}/{len(selected)}] Reusing {task['id']}: {output_video}")
+            continue
         print(f"\n[{index}/{len(selected)}] Running {task['id']}")
         task_started = now_iso()
         try:
