@@ -38,7 +38,9 @@ REQUIRED_CUTMASTER_ARTIFACT_KEYS = frozenset(
         "workflow.log",
         "analyser.video_result",
         "analyser.music_result",
+        "planners.job_log",
         "planners.render_plan",
+        "renderer.job_log",
         "renderer.output_video",
     }
 )

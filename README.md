@@ -328,9 +328,9 @@ CutMaster 特有参数和建议：
 | `--method-version` | 写入 manifest 的 CutMaster 实验标签；默认是 `master-team-v1`。 |
 | `--target-duration-mode task\|music` | 目标时长来源；默认 `task` 使用任务定义值，`music` 使用 `ffprobe` 读取的输入 BGM 完整时长。 |
 | `--dialogue-audio` | 在评测成片中加入选中的原声锚点；默认关闭，因此正常完整运行会直接输出标准 AAC 纯 BGM 版本。 |
-| `--overwrite` | 重新生成 benchmark task 输出，并在 CutMaster 中保留旧历史、创建新的 Project/Run/Render；不会删除素材级分析缓存。 |
+| `--overwrite` | 重新生成 benchmark task 输出；CutMaster 会按 `Benchmark · <run_id> · <task_id>` 复用同名 Project，并在其中创建新的 Run/Render；不会删除旧历史或素材级分析缓存。 |
 
-不传 `--overwrite` 时，只有已有成功输出的目标时长模式和有效目标时长都与当前请求一致，task 才会直接跳过；旧记录未包含模式时按 `task` 处理。若模式或时长不同，adapter 会要求使用新的 `--run-id` 或显式传入 `--overwrite`，避免静默复用错误时长的成片。失败或不完整的 task 会重新执行。传入 `--overwrite` 后，当前 task 的 ASTER 协作与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/media/` Material Library 不会删除。同一 Material Type 下名称与已绑定内容指纹都一致的视频或音乐会幂等复用托管素材及已完成分析；同名但内容不同会直接报冲突，不会自动追加后缀。若上次只完成了部分视频分析，在同一字幕与分析规格下也会继续复用已有 checkpoint。`run_output.json` 的 `target_output_length_sec` 保存实际传给 CutMaster 的有效目标时长，`target_duration_mode` 保存其来源；运行 manifest 的 `adapter.options.target_duration_mode` 保存整次调用所选模式。
+不传 `--overwrite` 时，只有已有成功输出的目标时长模式和有效目标时长都与当前请求一致，task 才会直接跳过；旧记录未包含模式时按 `task` 处理。若模式或时长不同，adapter 会要求使用新的 `--run-id` 或显式传入 `--overwrite`，避免静默复用错误时长的成片。失败或不完整的 task 会重新执行。adapter 对同一 `run_id` 和 `task_id` 始终生成稳定的 Project Name `Benchmark · <run_id> · <task_id>`；因此重跑会复用该 Project，并将每次尝试保留为新的 Run，而不是生成同名 Project。传入 `--overwrite` 后，当前 task 的 ASTER 协作与渲染会重建，但位于 CutMaster 项目下的 `.cutmaster/media/` Material Library 不会删除。同一 Material Type 下名称与已绑定内容指纹都一致的视频或音乐会幂等复用托管素材及已完成分析；同名但内容不同会直接报冲突，不会自动追加后缀。若上次只完成了部分视频分析，在同一字幕与分析规格下也会继续复用已有 checkpoint。`run_output.json` 的 `target_output_length_sec` 保存实际传给 CutMaster 的有效目标时长，`target_duration_mode` 保存其来源；运行 manifest 的 `adapter.options.target_duration_mode` 保存整次调用所选模式。
 
 主要输出位置：
 

@@ -20,6 +20,7 @@ RELOCATED_MANIFEST = {
     "planners.render_plan": "metadata/portable-plan.json",
     "planners.raw_script": "metadata/script.json",
     "planners.job_log": "logs/aster.log",
+    "renderer.job_log": "logs/renderer.log",
     "renderer.output_video": "media/final.mp4",
 }
 
@@ -42,6 +43,8 @@ def _write_manifest_bundle(
             path.write_text("managed workflow log\n", encoding="utf-8")
         elif logical_key == "planners.job_log":
             path.write_text("managed ASTER log\n", encoding="utf-8")
+        elif logical_key == "renderer.job_log":
+            path.write_text("managed Renderer log\n", encoding="utf-8")
         else:
             path.write_text("{}\n", encoding="utf-8")
     root.mkdir(parents=True, exist_ok=True)
@@ -205,6 +208,9 @@ def test_cutmaster_adapter_consumes_artifact_manifest_without_physical_paths(
     assert "--video-material-name" in observed_command
     assert observed_command[observed_command.index("--video-material-name") + 1] == ("Stable Video")
     assert observed_command[observed_command.index("--music-material-name") + 1] == ("Stable Music")
+    assert observed_command[observed_command.index("--project-name") + 1] == (
+        "Benchmark · test · task_001"
+    )
     assert "--no-dialogue-audio" in observed_command
 
 

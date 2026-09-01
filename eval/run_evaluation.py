@@ -222,6 +222,15 @@ def main() -> int:
         score_record.setdefault("metric_details", {})
         score_record.setdefault("rationale", {})
 
+        if task_id in reevaluate_task_ids and task_id in reused_records:
+            score_record.update(
+                {
+                    "status": "success" if record.get("status") == "success" else "skipped",
+                    "cost": {"api_cost_usd": record.get("api_cost_usd")},
+                    "efficiency": {"wall_clock_sec": record.get("wall_clock_sec")},
+                }
+            )
+
         if task_id not in reevaluate_task_ids:
             score_record["scores"]["Quality"] = compute_quality(score_record["scores"], config)
             return idx, score_record, f"[{idx}/{total_records}] reused {task_id}"
