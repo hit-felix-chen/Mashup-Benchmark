@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--subtitle", type=Path)
     parser.add_argument("--target-duration", type=float, required=True)
+    parser.add_argument("--anchor", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--target-shot-length", type=float, required=True)
     parser.add_argument("--prompt-type", required=True)
     parser.add_argument("--video-title", default="")
@@ -48,6 +49,7 @@ def build_command(args: argparse.Namespace) -> ExecuteManagedWorkflowCommand:
         prompt=args.prompt,
         project_name=args.project_name,
         target_output_length_sec=args.target_duration,
+        anchor_enabled=args.anchor,
         target_shot_length_sec=args.target_shot_length,
         prompt_type=args.prompt_type,
         video_title=args.video_title,

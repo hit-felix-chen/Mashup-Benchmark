@@ -9,6 +9,20 @@ import pytest
 
 import scripts.run_cutmaster as adapter
 
+def test_reuse_rejects_a_different_anchor_mode(tmp_path):
+    (tmp_path / "output.mp4").write_bytes(b"existing video")
+    record = {"status": "success", "target_duration_mode": "task",
+              "target_output_length_sec": 60.0}
+    (tmp_path / "run_output.json").write_text(json.dumps(record))
+    options = dict(overwrite=False, target_duration_mode="task", target_output_length_sec=60.0)
+    assert adapter.reusable_success_record(tmp_path, **options) == record
+    with pytest.raises(RuntimeError, match="Anchor"):
+        adapter.reusable_success_record(tmp_path, anchor_enabled=False, **options)
+    record["anchor_enabled"] = False
+    (tmp_path / "run_output.json").write_text(json.dumps(record))
+    assert adapter.reusable_success_record(tmp_path, anchor_enabled=False, **options) == record
+
+
 RELOCATED_MANIFEST = {
     "workflow.result": "result.json",
     "workflow.model_usage": "metadata/usage.json",

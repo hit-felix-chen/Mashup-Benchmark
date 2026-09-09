@@ -180,12 +180,15 @@ def reusable_success_record(
     overwrite: bool,
     target_duration_mode: str,
     target_output_length_sec: float,
+    anchor_enabled: bool = True,
 ) -> dict[str, Any] | None:
     output_video = task_dir / "output.mp4"
     existing = load_record(task_dir)
     if overwrite or not output_video.exists() or (existing or {}).get("status") != "success":
         return None
     assert existing is not None
+    if existing.get("anchor_enabled", True) != anchor_enabled:
+        raise RuntimeError("Existing output uses a different Anchor setting. Use a new --run-id or --overwrite.")
     if _record_matches_target(
         existing,
         target_duration_mode=target_duration_mode,
@@ -427,6 +430,7 @@ def run_task(
     overwrite: bool,
     subtitle: Path | None,
     dialogue_audio: bool,
+    anchor_enabled: bool = True,
     target_duration_mode: str = "task",
     target_output_length_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -455,6 +459,7 @@ def run_task(
         overwrite=overwrite,
         target_duration_mode=target_duration_mode,
         target_output_length_sec=effective_target,
+        anchor_enabled=anchor_enabled,
     )
     if existing is not None:
         print(f"[{task_id}] reusing successful output: {output_video}")
@@ -493,6 +498,7 @@ def run_task(
         "--project-name",
         f"Benchmark · {run_id} · {task_id}",
         "--dialogue-audio" if dialogue_audio else "--no-dialogue-audio",
+        "--anchor" if anchor_enabled else "--no-anchor",
     ]
     if subtitle:
         command += ["--subtitle", str(subtitle)]
@@ -547,6 +553,7 @@ def run_task(
         "audio_id": task["audio"]["id"],
         "prompt_type": task["task"]["type"],
         "status": "success",
+        "anchor_enabled": anchor_enabled,
         "output_video": relative(output_video, benchmark_root),
         "target_duration_mode": target_duration_mode,
         "target_output_length_sec": effective_target,
@@ -651,6 +658,8 @@ def parse_args() -> argparse.Namespace:
         "--subtitle-path", type=Path, help="Optional SRT for a single selected task; otherwise run Fun-ASR."
     )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--anchor", action=argparse.BooleanOptionalAction, default=True,
+                        help="Enable dialogue-anchor planning for each project (default: enabled).")
     parser.add_argument(
         "--dialogue-audio",
         action=argparse.BooleanOptionalAction,
@@ -718,6 +727,7 @@ def main() -> int:
                 overwrite=args.overwrite,
                 target_duration_mode=args.target_duration_mode,
                 target_output_length_sec=effective_targets[task["id"]],
+                anchor_enabled=getattr(args, "anchor", True),
             )
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
@@ -743,6 +753,7 @@ def main() -> int:
             "config": str(config),
             "subtitle_path": str(subtitle) if subtitle else None,
             "dialogue_audio": bool(args.dialogue_audio),
+            "anchor_enabled": bool(getattr(args, "anchor", True)),
             "target_duration_mode": args.target_duration_mode,
         },
     }
@@ -768,6 +779,7 @@ def main() -> int:
                 overwrite=args.overwrite,
                 subtitle=subtitle,
                 dialogue_audio=args.dialogue_audio,
+                anchor_enabled=getattr(args, "anchor", True),
                 target_duration_mode=args.target_duration_mode,
                 target_output_length_sec=effective_targets[task["id"]],
             )

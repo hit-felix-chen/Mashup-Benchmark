@@ -127,6 +127,12 @@ def _worker_argv(tmp_path: Path) -> list[str]:
     ]
 
 
+def test_worker_anchor_flag_defaults_on_and_can_disable(tmp_path):
+    for flags, expected in (([], True), (["--no-anchor"], False), (["--anchor"], True)):
+        args = worker.build_parser().parse_args(_worker_argv(tmp_path) + flags)
+        assert worker.build_command(args).anchor_enabled is expected
+
+
 def test_worker_prints_workflow_result_json_and_returns_zero(
     tmp_path: Path,
     monkeypatch,
