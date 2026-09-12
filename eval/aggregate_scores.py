@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from eval.config import weights_from_config
-
 QUALITY_METRICS = ("IF", "BCS", "AEC", "VQ", "TC", "NC")
 LIKERT_METRICS = frozenset({"IF", "VQ", "TC", "NC"})
 
@@ -19,7 +17,7 @@ def normalize_score_for_quality(metric: str, value: float | int | None) -> float
 
 
 def compute_quality(scores: dict[str, float | None], config: dict[str, Any]) -> float | None:
-    weights = weights_from_config(config)
+    """Arithmetic mean of normalized scores; ignore legacy weights."""
     available = {
         metric: normalize_score_for_quality(metric, scores.get(metric))
         for metric in QUALITY_METRICS
@@ -27,10 +25,7 @@ def compute_quality(scores: dict[str, float | None], config: dict[str, Any]) -> 
     }
     if not available:
         return None
-    weight_sum = sum(weights[m] for m in available)
-    if weight_sum <= 0:
-        return None
-    return sum(float(available[m]) * weights[m] for m in available) / weight_sum
+    return sum(float(v) for v in available.values()) / len(available)
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:

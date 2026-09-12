@@ -300,6 +300,7 @@ def main() -> int:
                         "scale": vlm_result.get("score_scale"),
                         "raw_score": value,
                         "normalized_score": normalize_score_for_quality(metric, value),
+                        "rubric_version": vlm_result.get("rubric_version"),
                     }
                 score_record["judge"] = {
                     "type": "vlm_as_judge",
@@ -308,6 +309,7 @@ def main() -> int:
                     "provider": vlm_result.get("vlm_provider"),
                     "input_type": vlm_result.get("input_type"),
                     "score_scale": vlm_result.get("score_scale"),
+                    "rubric_version": vlm_result.get("rubric_version"),
                     "video_size_bytes": vlm_result.get("video_size_bytes"),
                     "usage": vlm_result.get("usage"),
                 }

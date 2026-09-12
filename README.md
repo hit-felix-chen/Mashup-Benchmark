@@ -6,6 +6,24 @@ Mashup-Benchmark 是一个面向长视频自动剪辑的 benchmark，用于评�
 
 ![Mashup-Benchmark Overview](docs/assets/mashup_benchmark_overview.png)
 
+## Pairwise 人工评测 WebUI
+
+[`human-judge-webui/`](human-judge-webui/README.md) 提供双视频匿名比较和结果记录。每轮从所选任务中等概率随机抽取一个 task，再从启用方法中随机选两个不同方法并随机安排 A/B，采用有放回抽样。默认启用 CutClaw、DIRECT-Claw、NarratoAI、OpenMontage、VideoAgent，以及 **`cutmaster_overlap_beat`** 版本的 CutMaster；方法和路径均可在 [`config.json`](human-judge-webui/config.json) 中自定义。
+
+```bash
+# 在 benchmark 根目录运行；需要 Python 3.11+、ffmpeg 和 ffprobe
+python human-judge-webui/app.py check
+python human-judge-webui/app.py serve
+# 打开 http://127.0.0.1:8765
+
+# 导出已保存的人工结果
+python human-judge-webui/app.py export
+```
+
+标注者完整观看 A/B 后，先比较 **OQ（整体质量）**，再分别比较四个 VLM 通用指标 **IF、VQ、TC、NC**。各项为五档偏好：A 明显更好 / A 略好 / 相当 / B 略好 / B 明显更好；不是逐视频的绝对 1–5 分。OQ 在服务器锁定后才进入分项评价。支持刷新续评、多人使用、跳过原因、重复提交去重及视频拖动播放。
+
+结果保存在 `human-judge-webui/data/judgments.sqlite3`，导出到 `human-judge-webui/exports/`（CSV、JSONL 和实验快照）；人工结果不进入自动 `Quality`。局域网部署使用 `serve --host 0.0.0.0`。首次播放不兼容视频时会自动生成播放副本；可用 `prepare-media` 提前生成缓存。配置、编码影响和完整用法见 [WebUI 说明](human-judge-webui/README.md)。
+
 ## 数据集
 
 - 10 个小时级长视频源：3 场体育赛事、3 集纪录片、4 部电影。
@@ -175,14 +193,10 @@ uv run python -m eval.run_evaluation --run runs/<run_id> --config eval/config.ya
 自动化 `Quality` 分数包含 6 个指标：
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
+Quality = mean(IF_normalized, BCS, AEC, VQ_normalized, TC_normalized, NC_normalized)
 ```
 
-权重规则：
-
-- 本地自动指标：`BCS = 0.25`，`AEC = 0.25`。
-- VLM-as-judge 指标：`IF = 0.125`，`VQ = 0.125`，`TC = 0.125`，`NC = 0.125`。
-- 如果某个自动指标缺失，则只在其余可用自动指标之间重新归一化权重。
+六项指标统一到百分制后取算术平均，不使用权重，旧权重配置被忽略。缺失指标不参与平均；部分综合分不能与完整六项综合分直接比较。
 
 VLM-as-judge 的 `IF/VQ/TC/NC` 原始分数采用 1-5 Likert 量表；计算 `Quality` 时会按 `(score - 1) / 4 * 100` 转换为 0-100 尺度。
 
@@ -805,7 +819,7 @@ uv run python -m eval.run_specified_metrics --run runs/<run_id> --config eval/co
 
 专用指标同样会跳过触发 VLM 内容检查的 task，并在 `judge.status = skipped` 中记录原因；该 task 不参与专用指标均值。
 
-`eval/config.yaml` 用于配置 VLM 模型名、API key、base URL、超时时间和指标权重。该文件包含本地密钥配置，已被 Git 忽略；请不要提交。
+`eval/config.yaml` 用于配置 VLM 模型名、API key、base URL、超时时间和自动指标参数。综合分不再使用权重配置。该文件包含本地密钥配置，已被 Git 忽略；请不要提交。
 
 </details>
 

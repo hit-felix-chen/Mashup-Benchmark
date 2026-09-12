@@ -5,14 +5,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "eval" / "config.yaml"
-DEFAULT_WEIGHTS = {
-    "IF": 0.1250,
-    "BCS": 0.2500,
-    "AEC": 0.2500,
-    "VQ": 0.1250,
-    "TC": 0.1250,
-    "NC": 0.1250,
-}
 
 
 def _coerce_scalar(value: str) -> Any:
@@ -83,10 +75,8 @@ def load_config(path: str | Path | None = None, require_vlm: bool = True) -> dic
                 f"Missing config file: {config_path}. Copy eval/config.example.yaml "
                 "to eval/config.yaml and fill in vlm.model/api_key/base_url."
             )
-        return {"metrics": {"weights": DEFAULT_WEIGHTS}}
+        return {}
     data = load_simple_yaml(config_path)
-    data.setdefault("metrics", {})
-    data["metrics"].setdefault("weights", DEFAULT_WEIGHTS)
     data.setdefault("automatic_metrics", {})
     data["automatic_metrics"].setdefault("video_sample_fps", 2.0)
     data["automatic_metrics"].setdefault("audio_window_sec", 0.5)
@@ -99,12 +89,3 @@ def load_config(path: str | Path | None = None, require_vlm: bool = True) -> dic
     data["automatic_metrics"].setdefault("beat_window_sec", 0.05)
     data["automatic_metrics"].setdefault("bcs_tau_sec", 0.196)
     return data
-
-
-def weights_from_config(config: dict[str, Any]) -> dict[str, float]:
-    raw = config.get("metrics", {}).get("weights", DEFAULT_WEIGHTS)
-    weights = {key: float(raw.get(key, DEFAULT_WEIGHTS[key])) for key in DEFAULT_WEIGHTS}
-    total = sum(weights.values())
-    if total <= 0:
-        return DEFAULT_WEIGHTS.copy()
-    return {key: value / total for key, value in weights.items()}

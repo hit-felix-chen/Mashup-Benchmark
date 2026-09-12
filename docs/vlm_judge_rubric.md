@@ -1,89 +1,72 @@
-# VLM Judge Rubric Draft
+# General VLM rubric v2
 
-Use this rubric when scoring a generated video against one benchmark task.
+Version: `general_v2_1_evidence_anchored`. The executable English anchors and output
+contract are in `eval/evaluators/vlm_judge.py::USER_PROMPT_TEMPLATE`.
 
-Inputs:
+The six general metrics remain IF, BCS, AEC, VQ, TC, and NC. Four are holistic
+VLM scores; BCS and AEC retain their existing calculations. Task-specific metrics are unchanged. Quality uses an unweighted mean after normalization. VQ retains its storage key but now measures
+editing technical quality rather than source cinematography or resolution.
 
-- User prompt
-- Source video title/category metadata
-- BGM metadata
-- Generated short video
+## Evidence and independence
 
-The VLM judge scores only four metrics on a 1-5 Likert scale. Keep metrics independent:
+Review the complete video, record timestamped diagnostics, explain each anchor,
+then assign integer scores from 1 to 5. Titles are context, not evidence.
+Uncertain observations must not become confirmed successes or invented defects.
+Do not infer unseen events or identities from metadata.
 
-- Do not penalize IF for visual quality or transition quality unless they prevent judging prompt fulfillment.
-- Do not score beat synchronization or audio-visual energy alignment here; those are computed separately.
-- Use BGM metadata only when judging whether the requested style or emotion is supported.
-- Length mismatch should affect IF only if it substantially violates the requested output length or prevents satisfying the prompt.
+Use the same anchors across methods and genres. Do not force a score spread,
+ranking, maximum, or quota of high scores. Award 5 when its conditions are met.
+A recognizable theme or polished source alone cannot justify high scores.
+3 denotes adequate execution with substantive limitations; 4 requires strong
+execution; 5 requires all metric-specific conditions.
 
-## Metric Anchors
+| Score | IF: Instruction Following | VQ: Editing Technical Quality | TC: Transition Continuity | NC: Narrative Coherence |
+| --- | --- | --- | --- | --- |
+| 1 | Central request absent or contradicted | Pervasive technical problems | Most boundaries disrupt comprehension | No discernible organization |
+| 2 | Most core requirements unsupported | Repeated substantial defects | Repeated disruptive boundaries | Disconnected or repetitive sequence |
+| 3 | A core omission/partial fulfillment or several secondary weaknesses | One substantial or several minor defects | Several weak boundaries or an important interruption | Basic organization but weak development, emphasis, or closure |
+| 4 | All core requirements supported; minor secondary limitations | Isolated minor defects | Almost all boundaries purposeful and readable | Sustained progression with minor gaps or redundancy |
+| 5 | All explicit requirements fully supported with appropriate emphasis | Precise presentation throughout with no observed editing-induced defects | All observed boundaries preserve meaning and orientation with precise timing | Fully developed, economical progression and convincing task-appropriate ending |
 
-### IF: Instruction Following
+IF uses a prompt-derived checklist with core/secondary and complete/partial/
+missing/uncertain labels. Missing or unverified core requirements rule out 4 and
+5. Context or implied outcomes cannot substitute for requested actions/processes.
+Do not add unstated requirements. Duration affects IF only for substantive
+violations of the request or fulfillment.
+Broad style/genre terms do not mandate a particular outcome, emotional valence,
+or chronology. Do not turn genre conventions into additional core requirements.
 
-Does the edit follow the requested subject, event, style, emotion, or narrative?
+VQ evaluates defects introduced or aggravated by editing. Intentional stillness,
+repetition, and brief shots are not automatically defective. Source resolution
+and cinematography do not earn credit. Semantic boundary problems belong to TC.
+Attribute defects to editing only with visible evidence; source appearance alone
+is insufficient, and uncertain attribution should be reported as uncertain.
 
-- 1 = unrelated or contradicts the prompt.
-- 2 = weakly related; misses most key requested elements.
-- 3 = partially follows; covers some key elements but misses important ones.
-- 4 = mostly follows; minor omissions or weak emphasis.
-- 5 = strongly follows all key requested elements and constraints.
+TC evaluates local readability and action/thought completion at boundaries.
+Changes in time, location, and shot scale are not inherently problems. Fast cuts
+require evidence of harm before being penalized. Music synchronization belongs
+to BCS; montage does not require continuous action.
 
-### VQ: Visual Quality
+NC evaluates organization of included material, not coverage (IF) or individual
+cut execution (TC). Shared subjects and chronology alone do not imply developed
+structure. Thematic, emotional, and nonlinear organization are valid.
+Non-narrative tasks do not require a plot.
 
-Is the video clear, well-composed, subject-focused, and free of obvious technical defects?
+Diagnostics retain the existing schema: timestamped evidence, omission severity,
+defect impact, and uncertainty. Each rationale explains the selected anchor and
+why the next is not met, or why 5 is justified.
 
-- 1 = severe visual defects make the video hard to watch.
-- 2 = frequent blur, occlusion, bad framing, or unstable subject focus.
-- 3 = generally watchable but with noticeable quality or framing issues.
-- 4 = clear and stable with only minor visual issues.
-- 5 = consistently clear, well-composed, and subject-focused.
+## Version comparison and validation
 
-### TC: Transition Continuity
+`rubric_version` is stored in judge metadata and each evaluated metric's details.
+V1 and V2 scores are not directly comparable, especially VQ. Re-evaluate all
+compared methods with V2 before reporting rankings. Retain historical evaluations
+under their original IDs. Partial evaluations can mix versions; inspect
+per-metric metadata rather than only judge metadata.
 
-Do adjacent segments feel coherent in visual semantics, motion, and composition?
+Validate with method-blind human comparisons and repeated judgments. Report
+spread, ceiling frequency, repeatability, and human agreement as observations,
+not guaranteed outcomes. Choose criteria before inspecting new rankings; do not
+tune anchors or weights to reward a specific method.
 
-- 1 = chaotic or jarring cuts that break comprehension.
-- 2 = many abrupt jumps or mismatched transitions.
-- 3 = mixed continuity; some transitions work, some feel abrupt.
-- 4 = mostly smooth and coherent transitions with minor jumps.
-- 5 = consistently natural, purposeful, and rhythmically coherent transitions.
-
-### NC: Narrative Coherence
-
-Does the edit have a clear structure, progression, or story arc matching the prompt?
-
-- 1 = random clips with no understandable structure.
-- 2 = weak structure; sequence feels mostly disjointed.
-- 3 = basic progression is present but underdeveloped or uneven.
-- 4 = clear progression with minor gaps or pacing issues.
-- 5 = strong beginning-middle-end or emotional/story progression.
-
-`OQ` is not scored by the VLM judge. It is collected by a separate human-evaluation workflow on a 1-5 Likert scale, stored outside run and automatic evaluation records, and used only for human-validation analyses. It never contributes to automatic `Quality`.
-
-Return JSON only:
-
-```json
-{
-  "scores": {
-    "IF": 1,
-    "VQ": 1,
-    "TC": 1,
-    "NC": 1
-  },
-  "rationale": {
-    "IF": "short reason",
-    "VQ": "short reason",
-    "TC": "short reason",
-    "NC": "short reason"
-  },
-  "diagnostics": {
-    "matched_prompt_elements": ["visible requested element"],
-    "missing_prompt_elements": ["requested element not visible"],
-    "visual_quality_issues": ["blur, bad framing, occlusion, or empty list"],
-    "transition_issues": ["abrupt jump, mismatched motion, or empty list"],
-    "narrative_issues": ["weak opening, temporal disorder, or empty list"],
-    "length_issue": "none | too_short | too_long",
-    "uncertain_observations": ["things that could not be verified, or empty list"]
-  }
-}
-```
+`OQ` is not scored by the VLM judge. It is collected by a separate human-evaluation workflow and stored outside run and automatic evaluation records. The earlier per-video protocol uses a 1–5 Likert scale; the [pairwise WebUI](../human-judge-webui/README.md) collects five-level relative preferences between A and B for OQ and human counterparts of IF/VQ/TC/NC. Keep the two protocols distinct. OQ is used only for human-validation analyses and never contributes to automatic `Quality`.

@@ -18,6 +18,8 @@ from eval.target_duration import effective_target_output_length_sec
 
 SYSTEM_PROMPT = """You are a strict evaluator for short-form video editing benchmarks. Score only what is visible in the provided video and described task metadata. Return JSON only."""
 
+RUBRIC_VERSION = "general_v2_1_evidence_anchored"
+
 USER_PROMPT_TEMPLATE = """
 Evaluate this generated short video for Mashup-Benchmark.
 
@@ -31,59 +33,90 @@ Target output length: {target_output_length_sec}s
 Target shot length: {target_shot_length_sec}s
 Actual output length: {actual_output_length_sec}s
 
-Score the following metrics on a 1-5 Likert scale:
-Use the metric-specific anchors below. Keep metrics independent:
+Score the following metrics on a 1-5 Likert scale using integer scores.
+First inspect the complete edit and record timestamped supporting evidence and limitations
+in diagnostics; then explain and assign each score independently using the anchors below.
+Judge this video against the task, never against an expected method ranking or score distribution.
+3 means adequate execution with substantive limitations; 4 requires strong evidence of
+careful execution; 5 requires all of that metric's exceptional-quality conditions.
+A high-quality source, recognizable theme, or a few successful moments alone do not justify 4 or 5.
+Do not invent defects to lower scores. Award 5 when its conditions are actually met.
+Keep metrics independent:
 - Do not penalize IF for visual quality or transition quality unless they prevent judging prompt fulfillment.
 - Do not score beat synchronization or audio-visual energy alignment here; those are computed separately.
 - Use BGM metadata only when judging whether the requested style or emotion is supported.
 - Length mismatch should affect IF only if it substantially violates the requested output length or prevents satisfying the prompt.
+- Titles provide context, not proof of content. Do not infer unseen events or identities from metadata.
+- Report observations that cannot be verified as uncertain, not as confirmed fulfillment or defects.
+- For each rationale, cite evidence and explain why the next higher anchor is not met, or why 5 is justified.
 
-IF: Instruction Following. Does the edit follow the requested subject, event, style, emotion, or narrative?
-1 = unrelated or contradicts the prompt.
-2 = weakly related; misses most key requested elements.
-3 = partially follows; covers some key elements but misses important ones.
-4 = mostly follows; minor omissions or weak emphasis.
-5 = strongly follows all key requested elements and constraints.
+IF: Instruction Following. How completely and specifically are explicit requirements fulfilled?
+Derive a short checklist from the prompt before judging fulfillment. Distinguish core requirements
+from secondary preferences. Record complete, partial, missing, or uncertain fulfillment with evidence.
+Related context or an implied outcome does not establish a requested action or process.
+1 = the central request is absent or contradicted.
+2 = thematic relevance exists, but most core requirements lack direct evidence.
+3 = meaningful fulfillment, but a core requirement is missing/partial or several secondary requirements are weak.
+4 = every core requirement is directly supported; only minor secondary limitations remain.
+5 = all explicit requirements are fully and unambiguously supported with appropriate emphasis throughout.
+An unverified or missing core requirement rules out 4 and 5. Do not add unstated requirements.
+Broad style or genre terms do not impose a mandatory outcome, positive/negative valence,
+or chronological order unless the prompt explicitly requires it. A dramatic setback can be
+a salient moment. Do not replace the user's requirements with conventional genre expectations.
 
-VQ: Visual Quality. Is the video clear, well-composed, subject-focused, and free of obvious technical defects?
-1 = severe visual defects make the video hard to watch.
-2 = frequent blur, occlusion, bad framing, or unstable subject focus.
-3 = generally watchable but with noticeable quality or framing issues.
-4 = clear and stable with only minor visual issues.
-5 = consistently clear, well-composed, and subject-focused.
+VQ: Editing Technical Quality (legacy key VQ). How well does the edit preserve usable visual material?
+Inspect visual integrity, framing consistency, and unintended visual interruptions or repetitions.
+Assess defects introduced or aggravated by editing; do not reward source resolution or cinematography.
+When attributing a defect to editing, state the visible evidence for that attribution.
+Source appearance alone does not establish an editing-induced defect; report uncertainty if needed.
+Intentional stillness, repetition, or brief shots are not defects without evidence of a viewing problem.
+Do not count semantic transition problems here; those belong to TC.
+1 = pervasive technical problems prevent comfortable viewing or comprehension.
+2 = repeated substantial defects impair several portions of the edit.
+3 = usable overall, but one substantial or several minor defects noticeably interrupt viewing.
+4 = technically controlled throughout, with only isolated minor defects.
+5 = consistently precise visual presentation across the entire edit, with no observed editing-induced defects.
 
-TC: Transition Continuity. Do adjacent segments feel coherent in visual semantics, motion, and composition?
-1 = chaotic or jarring cuts that break comprehension.
-2 = many abrupt jumps or mismatched transitions.
-3 = mixed continuity; some transitions work, some feel abrupt.
-4 = mostly smooth and coherent transitions with minor jumps.
-5 = consistently natural, purposeful, and rhythmically coherent transitions.
+TC: Transition Continuity. How effectively do adjacent selections connect at their boundaries?
+Inspect local action/thought completion, perceptual orientation, and whether each transition is readable.
+Record boundary times for disruptive transitions. Changes in time, location, or shot scale are not
+inherently defects. Rapid cutting is a defect only when it harms readability or interrupts intended content.
+Do not score music synchronization here, and do not require continuous action in a montage.
+1 = most boundaries disrupt comprehension or orientation.
+2 = repeated disruptive boundaries make substantial portions difficult to follow.
+3 = understandable overall, but several weak boundaries or an important premature interruption remain.
+4 = almost all boundaries are purposeful and readable, with only isolated minor weaknesses.
+5 = all observed boundaries preserve intended meaning and orientation with consistently precise timing.
 
-NC: Narrative Coherence. Does the edit have a clear structure, progression, or story arc matching the prompt?
-1 = random clips with no understandable structure.
-2 = weak structure; sequence feels mostly disjointed.
-3 = basic progression is present but underdeveloped or uneven.
-4 = clear progression with minor gaps or pacing issues.
-5 = strong beginning-middle-end or emotional/story progression.
+NC: Narrative Coherence. How well does the sequence develop an understandable overall structure?
+Assess relationships across the edit, progression, economy, and closure appropriate to the task.
+A shared subject or chronological order alone is not a developed structure. Accept thematic,
+emotional, and nonlinear organization when legible; do not require a plot in a non-narrative task.
+Evaluate organization of included material, not prompt coverage (IF) or individual cut execution (TC).
+1 = no discernible organizing relationship among selections.
+2 = a theme is recognizable, but the sequence is largely disconnected or repetitive.
+3 = basic organization is readable, but development, emphasis, or closure is substantially weak.
+4 = clear and sustained progression with only minor structural gaps or redundancy.
+5 = a fully developed, economical structure with purposeful progression and a convincing task-appropriate ending.
 
 Return a JSON object exactly like:
 {{
-  "scores": {{"IF": 1, "VQ": 1, "TC": 1, "NC": 1}},
-  "rationale": {{
-    "IF": "short reason",
-    "VQ": "short reason",
-    "TC": "short reason",
-    "NC": "short reason"
-  }},
   "diagnostics": {{
-    "matched_prompt_elements": ["visible requested element"],
-    "missing_prompt_elements": ["requested element not visible"],
-    "visual_quality_issues": ["blur, bad framing, occlusion, or empty list"],
-    "transition_issues": ["abrupt jump, mismatched motion, or empty list"],
-    "narrative_issues": ["weak opening, temporal disorder, or empty list"],
+    "matched_prompt_elements": ["requirement; core/secondary; complete/partial; timestamped evidence"],
+    "missing_prompt_elements": ["requirement; core/secondary; missing/partial; extent of omission"],
+    "visual_quality_issues": ["timestamp or interval; observed editing defect and impact; or empty list"],
+    "transition_issues": ["boundary timestamp; observed disruption and impact; or empty list"],
+    "narrative_issues": ["interval; structural weakness and impact; or empty list"],
     "length_issue": "none | too_short | too_long",
     "uncertain_observations": ["things that could not be verified, or empty list"]
-  }}
+  }},
+  "rationale": {{
+    "IF": "evidence and anchor justification",
+    "VQ": "evidence and anchor justification",
+    "TC": "evidence and anchor justification",
+    "NC": "evidence and anchor justification"
+  }},
+  "scores": {{"IF": 1, "VQ": 1, "TC": 1, "NC": 1}}
 }}
 """.strip()
 
@@ -438,5 +471,6 @@ class VLMJudge:
             "input_type": "video",
             "vlm_provider": self.provider,
             "score_scale": "likert_1_5",
+            "rubric_version": RUBRIC_VERSION,
             "video_size_bytes": video_size_bytes,
         }

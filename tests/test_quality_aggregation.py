@@ -1,7 +1,6 @@
 import unittest
 
 from eval.aggregate_scores import compute_quality, summarize
-from eval.config import DEFAULT_WEIGHTS, weights_from_config
 from eval.run_evaluation import finalize_automatic_score_record
 
 SIX_METRIC_SCORES = {
@@ -15,22 +14,9 @@ SIX_METRIC_SCORES = {
 
 
 class QualityAggregationTests(unittest.TestCase):
-    def test_default_weights_are_the_existing_six_metric_weights(self):
-        self.assertEqual(
-            DEFAULT_WEIGHTS,
-            {
-                "IF": 0.125,
-                "BCS": 0.25,
-                "AEC": 0.25,
-                "VQ": 0.125,
-                "TC": 0.125,
-                "NC": 0.125,
-            },
-        )
-
-    def test_quality_matches_existing_six_metric_result(self):
+    def test_quality_is_arithmetic_mean(self):
         quality = compute_quality(SIX_METRIC_SCORES, {})
-        self.assertAlmostEqual(quality, 71.92508403449064)
+        self.assertAlmostEqual(quality, 70.86672268966043)
 
     def test_human_oq_never_changes_quality(self):
         expected = compute_quality(SIX_METRIC_SCORES, {})
@@ -53,7 +39,6 @@ class QualityAggregationTests(unittest.TestCase):
                 }
             }
         }
-        self.assertNotIn("OQ", weights_from_config(legacy_config))
         self.assertAlmostEqual(
             compute_quality({**SIX_METRIC_SCORES, "OQ": 1.0}, legacy_config),
             compute_quality(SIX_METRIC_SCORES, {}),
@@ -61,7 +46,13 @@ class QualityAggregationTests(unittest.TestCase):
 
     def test_missing_automatic_metric_still_renormalizes(self):
         quality = compute_quality({"BCS": 100.0, "IF": 1.0}, {})
-        self.assertAlmostEqual(quality, 100.0 * 0.25 / (0.25 + 0.125))
+        self.assertAlmostEqual(quality, 50.0)
+
+    def test_empty_scores(self):
+        self.assertIsNone(compute_quality({}, {}))
+
+    def test_extreme_weights_ignored(self):
+        self.assertEqual(compute_quality({"BCS": 100.0, "IF": 1.0}, {"metrics": {"weights": {"BCS": 100, "IF": 0}}}), 50.0)
 
     def test_summary_never_aggregates_oq(self):
         record = {"scores": {**SIX_METRIC_SCORES, "OQ": 5.0, "Quality": 50.0}}
@@ -80,7 +71,7 @@ class QualityAggregationTests(unittest.TestCase):
         self.assertNotIn("OQ", finalized["scores"])
         self.assertNotIn("OQ", finalized["metric_details"])
         self.assertNotIn("OQ", finalized["rationale"])
-        self.assertAlmostEqual(finalized["scores"]["Quality"], 71.92508403449064)
+        self.assertAlmostEqual(finalized["scores"]["Quality"], 70.86672268966043)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ The automatic evaluator supports six quality metrics: two local automatic metric
 ## Quality Score
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
+Quality = mean(IF_normalized, BCS, AEC, VQ_normalized, TC_normalized, NC_normalized)
 ```
 
 For `Quality`, Likert scores are converted to `[0, 100]` by:
@@ -14,18 +14,7 @@ For `Quality`, Likert scores are converted to `[0, 100]` by:
 normalized_vlm_score = (likert_score - 1) / 4 * 100
 ```
 
-Default six-metric weights:
-
-```text
-BCS = 0.25   # local automatic
-AEC = 0.25   # local automatic
-IF  = 0.125  # VLM-as-judge
-VQ  = 0.125  # VLM-as-judge
-TC  = 0.125  # VLM-as-judge
-NC  = 0.125  # VLM-as-judge
-```
-
-The implementation renormalizes automatically over the available automatic metrics when one is missing, which keeps smoke tests and partial evaluations comparable within the metrics they actually compute. Extra fields, including human `OQ`, never affect `Quality`.
+Use the arithmetic mean of normalized scores. Legacy weights are ignored. Missing metrics are omitted; partial Quality is not directly comparable to full six-metric Quality. Human OQ never affects Quality.
 
 ## Cross-Modal Alignment
 

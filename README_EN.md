@@ -1,5 +1,21 @@
 # Mashup-Benchmark
 
+## Pairwise Human Evaluation WebUI
+
+The [human-judge-webui](human-judge-webui/README.md) serves anonymous A/B videos and saves pairwise judgments. Each round uniformly samples one task, then two distinct enabled methods with randomized sides, **with replacement**. The default [configuration](human-judge-webui/config.json) enables all five baselines and CutMaster's **`cutmaster_overlap_beat`** run; method IDs, paths, enabled flags, and the task subset are configurable.
+
+```bash
+# From the benchmark root; Python 3.11+, ffmpeg and ffprobe required
+python human-judge-webui/app.py check
+python human-judge-webui/app.py serve
+# Visit http://127.0.0.1:8765
+python human-judge-webui/app.py export
+```
+
+Annotators first submit an independent overall quality (OQ) preference, which is locked on the server, then compare IF, VQ, TC, and NC. Each uses five relative choices: A clearly better, A slightly better, tie, B slightly better, B clearly better. These are pairwise preferences, not per-video absolute Likert scores. The UI supports resumable rounds, concurrent annotators, idempotent submission, skip reasons, and seekable video streaming.
+
+Records are saved to `human-judge-webui/data/judgments.sqlite3`; timestamped CSV/JSONL exports and study snapshots go to `human-judge-webui/exports/`. Human judgments never contribute to automatic `Quality`. Use `serve --host 0.0.0.0` on a trusted LAN and `prepare-media` to prebuild browser-compatible copies when needed. Copies may introduce re-encoding differences; their use is recorded for analysis. See the [full guide](human-judge-webui/README.md) for configuration, playback, storage, and protocol details.
+
 [中文](README.md)
 
 Mashup-Benchmark is a long-video automatic editing benchmark for evaluating short-form mashup, highlight, and music-driven video editing systems.
@@ -175,14 +191,10 @@ Media decoding and automatic metrics rely on the system commands `ffmpeg` and `f
 The automatic `Quality` score uses six metrics:
 
 ```text
-Quality = weighted_mean(IF, BCS, AEC, VQ, TC, NC)
+Quality = mean(IF_normalized, BCS, AEC, VQ_normalized, TC_normalized, NC_normalized)
 ```
 
-Weighting policy:
-
-- Local automatic metrics: `BCS = 0.25`, `AEC = 0.25`.
-- VLM-as-judge metrics: `IF = 0.125`, `VQ = 0.125`, `TC = 0.125`, `NC = 0.125`.
-- If an automatic metric is missing, weights are renormalized over the remaining automatic metrics only.
+Use the arithmetic mean after normalization to 0–100. Legacy weights are ignored. Missing metrics are omitted; partial Quality is not directly comparable to full six-metric Quality.
 
 Raw VLM-as-judge scores for `IF/VQ/TC/NC` use a 1-5 Likert scale. For `Quality`, they are converted to the 0-100 scale with `(score - 1) / 4 * 100`.
 
@@ -766,7 +778,7 @@ The default concurrency is 10 and can be changed with `--concurrency <N>`; outpu
 
 Specified metrics also skip tasks that trigger VLM content inspection and record the reason under `judge.status = skipped`; that task is excluded from specified-metric averages.
 
-`eval/config.yaml` configures the VLM model name, API key, base URL, timeout, and metric weights. This file contains local credentials and is ignored by Git; do not commit it.
+`eval/config.yaml` configures the VLM model name, API key, base URL, timeout, and automatic-metric parameters. This file contains local credentials and is ignored by Git; do not commit it.
 
 </details>
 

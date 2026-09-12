@@ -13,16 +13,7 @@ vlm:
   max_retries: 3
   retry_backoff_sec: 2
 
-metrics:
-  # Six-metric automatic Quality weights. Human ratings are stored and analyzed separately.
-  # If an automatic metric is missing, the evaluator renormalizes over the available metrics.
-  weights:
-    IF: 0.1250
-    BCS: 0.2500
-    AEC: 0.2500
-    VQ: 0.1250
-    TC: 0.1250
-    NC: 0.1250
+# Quality: arithmetic mean of six normalized metrics; legacy weights are ignored.
 
 automatic_metrics:
   # AEC motion-energy sampling.
