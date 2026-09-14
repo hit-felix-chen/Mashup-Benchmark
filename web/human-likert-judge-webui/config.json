@@ -1,0 +1,18 @@
+{
+  "study_id": "likert_overlap_beat_20260913",
+  "title": "混剪视频 · Likert 人工评分",
+  "benchmark_root": "../..",
+  "task_manifest": "data/tasks/mashup_benchmark.jsonl",
+  "task_ids": [],
+  "database": "data/ratings.sqlite3",
+  "host": "127.0.0.1",
+  "port": 8766,
+  "methods": [
+    {"id":"cutclaw","name":"CutClaw","run_dir":"runs/cutclaw_benchmark","enabled":true},
+    {"id":"direct_claw","name":"DIRECT-Claw","run_dir":"runs/direct_claw_benchmark","enabled":true},
+    {"id":"narratoai","name":"NarratoAI","run_dir":"runs/narratoai_benchmark","enabled":true},
+    {"id":"openmontage","name":"OpenMontage","run_dir":"runs/openmontage_benchmark","enabled":true},
+    {"id":"videoagent","name":"VideoAgent","run_dir":"runs/videoagent_benchmark","enabled":true},
+    {"id":"cutmaster","name":"CutMaster","run_dir":"runs/cutmaster-overlap-beat-2","enabled":true}
+  ]
+}

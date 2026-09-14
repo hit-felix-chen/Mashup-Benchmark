@@ -9,6 +9,7 @@ import json
 import mimetypes
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -22,11 +23,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 BASE = Path(__file__).resolve().parent
-METRICS = {
-    "OQ": [
-        "整体质量",
-        "结合提示词、背景音乐和目标时长，哪部成片整体更完整、自然、协调，更符合任务且具有可发布性？请先作整体判断。",
-    ],
+LEGACY_METRICS = {
     "IF": [
         "指令遵循",
         "哪部成片更充分地满足提示词要求的主体、事件、风格、情绪或叙事意图？不要因一般画质或转场问题重复扣分。",
@@ -35,18 +32,19 @@ METRICS = {
     "TC": ["转场连续性", "哪部成片的相邻片段在视觉语义、运动与构图上衔接更自然？此项不单独评价音乐卡点。"],
     "NC": ["叙事连贯性", "哪部成片具有更清晰、连贯且符合提示词的结构、推进过程或故事／情绪弧线？"],
 }
+METRICS = {"OQ": ["视频整体质量", "综合观看体验，你认为哪部视频更好？"]}
+REASONS = {"IF": "遵循指令", "VQ": "画面美观", "TC": "转场丝滑", "NC": "叙事连贯"}
 PROTOCOL = {
-    "version": "pairwise-v1",
+    "version": "pairwise-v3-overall-reasons",
     "metrics": METRICS,
+    "optional_reasons": REASONS,
     "scale": {
-        "2": "A clearly better",
-        "1": "A slightly better",
+        "1": "A better",
         "0": "tie",
-        "-1": "B slightly better",
-        "-2": "B clearly better",
+        "-1": "B better",
     },
     "sampling": "uniform task, then uniform ordered pair of distinct methods; with replacement",
-    "oq_first": True,
+    "oq_first": False,
 }
 
 
@@ -62,10 +60,68 @@ def fingerprint(value):
     return hashlib.sha256(json_text(value).encode()).hexdigest()
 
 
+def media_tool(name):
+    """Find ffmpeg tools even when the service was launched by tmux/SSH."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in ("/opt/homebrew/bin", "/usr/local/bin"):
+        candidate = Path(directory, name)
+        if candidate.is_file() and candidate.stat().st_mode & 0o111:
+            return str(candidate)
+    raise FileNotFoundError(f"{name} not found; install ffmpeg or add it to PATH")
+
+
 class APIError(Exception):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+def ensure_overall_columns(db):
+    columns = {r[1] for r in db.execute("PRAGMA table_info(pairs)")}
+    for name in ("reasons", "legacy_ratings", "rating_origin"):
+        if name not in columns:
+            db.execute(f"ALTER TABLE pairs ADD COLUMN {name} TEXT")
+
+
+def derive_overall(scores):
+    if not isinstance(scores, dict) or set(scores) != set(REASONS):
+        raise ValueError("Expected four legacy metric preferences")
+    if any(type(v) is not int or v not in (-1, 0, 1) for v in scores.values()):
+        raise ValueError("Invalid legacy preference")
+    votes = sum(scores.values())
+    winner = (votes > 0) - (votes < 0)
+    return {"OQ": winner}, [k for k in REASONS if winner and scores[k] == winner]
+
+
+def migrate_overall(config_path):
+    """Explicit, atomic migration; preserve raw judgments and their provenance."""
+    path = Path(config_path).resolve()
+    cfg = json.loads(path.read_text())
+    db_path = (path.parent / cfg["database"]).resolve()
+    with closing(sqlite3.connect(f"{db_path.as_uri()}?mode=rw", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            ensure_overall_columns(db)
+            db.execute("CREATE TABLE IF NOT EXISTS protocol_migrations (study_id TEXT, migrated_at TEXT, old_snapshot TEXT, new_version TEXT, PRIMARY KEY(study_id,new_version))")
+            migrated = 0
+            for study in db.execute("SELECT * FROM studies").fetchall():
+                snapshot = json.loads(study["snapshot"])
+                if snapshot["protocol"]["version"] != "pairwise-v2-vlm-four-metrics":
+                    continue
+                for row in db.execute("SELECT id,ratings FROM pairs WHERE study_id=? AND status='submitted'", (study["id"],)).fetchall():
+                    scores, reasons = derive_overall(json.loads(row["ratings"]))
+                    db.execute("UPDATE pairs SET legacy_ratings=ratings,ratings=?,reasons=?,rating_origin='derived_four_metrics' WHERE id=?",
+                               (json_text(scores), json_text(reasons), row["id"]))
+                    migrated += 1
+                db.execute("INSERT INTO protocol_migrations VALUES (?,?,?,?)",
+                           (study["id"], now(), study["snapshot"], PROTOCOL["version"]))
+                snapshot["protocol"] = PROTOCOL
+                db.execute("UPDATE studies SET snapshot=?,digest=? WHERE id=?",
+                           (json_text(snapshot), fingerprint(snapshot), study["id"]))
+    print(f"Migrated {migrated} submitted comparisons; original ratings retained.")
 
 
 class Study:
@@ -140,6 +196,7 @@ class Study:
                 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_pair
                     ON pairs(study_id, participant_id) WHERE status = 'pending';
             """)
+            ensure_overall_columns(db)
             existing = db.execute("SELECT digest FROM studies WHERE id=?", (self.study_id,)).fetchone()
             if existing and existing["digest"] != self.digest:
                 raise ValueError(
@@ -214,7 +271,7 @@ class Study:
             probe = json.loads(
                 subprocess.check_output(
                     [
-                        "ffprobe",
+                        media_tool("ffprobe"),
                         "-v",
                         "error",
                         "-show_streams",
@@ -243,7 +300,7 @@ class Study:
                     try:
                         subprocess.run(
                             [
-                                "ffmpeg",
+                                media_tool("ffmpeg"),
                                 "-nostdin",
                                 "-v",
                                 "error",
@@ -317,7 +374,6 @@ class Study:
         return {
             "id": pair_id,
             "status": pair["status"],
-            "oq": pair["oq"],
             "completed": count,
             "task": {
                 "id": pair["task_id"],
@@ -334,31 +390,8 @@ class Study:
 
     @staticmethod
     def validate_score(score):
-        if type(score) is not int or score not in (-2, -1, 0, 1, 2):
-            raise APIError("每项请选择 A 明显更好、A 略好、相当、B 略好或 B 明显更好。")
-
-    def save_oq(self, pid, pair_id, body):
-        score = body.get("score")
-        self.validate_score(score)
-        if body.get("watched") != {"a": True, "b": True}:
-            raise APIError("请确认已带声完整观看 A 和 B。")
-        pair = self.pair(pid, pair_id)
-        if any(self.prepare(pair["task_id"], pair[f"method_{s}"])["status"] != "ready" for s in ("a", "b")):
-            raise APIError("视频尚未准备完成。", 409)
-        with closing(self.connect()) as db, db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT * FROM pairs WHERE id=?", (pair_id,)).fetchone()
-            if row["oq"] is not None:
-                if row["oq"] != score:
-                    raise APIError("整体质量已提交，不能回改。", 409)
-                return
-            if row["status"] != "pending":
-                raise APIError("这一轮已结束。", 409)
-            media = {s: self.prepare(row["task_id"], row[f"method_{s}"]) for s in ("a", "b")}
-            db.execute(
-                "UPDATE pairs SET oq=?,oq_at=?,watched=?,media_info=? WHERE id=?",
-                (score, now(), json_text(body["watched"]), json_text(media), pair_id),
-            )
+        if type(score) is not int or score not in (-1, 0, 1):
+            raise APIError("每项请选择 A 更好、相当或 B 更好。")
 
     def finish(self, pid, pair_id, body, skip=False):
         self.pair(pid, pair_id)
@@ -366,24 +399,36 @@ class Study:
         if not isinstance(note, str) or len(note) > 2000 or (skip and not note.strip()):
             raise APIError("跳过时需填写原因；备注不超过 2000 字。")
         scores = body.get("scores")
+        reasons = body.get("reasons", [])
         if not skip:
-            if not isinstance(scores, dict) or set(scores) != {"IF", "VQ", "TC", "NC"}:
-                raise APIError("请完成 IF、VQ、TC、NC 四项比较。")
+            if not isinstance(scores, dict) or set(scores) != {"OQ"}:
+                raise APIError("请选择整体质量偏好；若页面仍显示四项问题，请刷新页面。")
             for score in scores.values():
                 self.validate_score(score)
+            if (not isinstance(reasons, list) or any(not isinstance(r, str) or r not in REASONS for r in reasons)
+                    or len(set(reasons)) != len(reasons)):
+                raise APIError("请选择有效的原因，可多选或不选。")
+            reasons = [r for r in REASONS if r in reasons]
+            if body.get("watched") != {"a": True, "b": True}:
+                raise APIError("请确认已带声完整观看 A 和 B。")
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             pair = db.execute("SELECT * FROM pairs WHERE id=?", (pair_id,)).fetchone()
             status = "skipped" if skip else "submitted"
             if pair["status"] == status:
-                if not skip and json.loads(pair["ratings"]) != scores:
+                if not skip and (json.loads(pair["ratings"]) != scores or json.loads(pair["reasons"] or "[]") != reasons):
                     raise APIError("这一轮已保存，不能覆盖评分。", 409)
                 return
-            if pair["status"] != "pending" or (not skip and pair["oq"] is None):
-                raise APIError("请先提交整体质量，或这一轮已结束。", 409)
+            if pair["status"] != "pending":
+                raise APIError("这一轮已结束。", 409)
+            media = {side: self.prepare(pair["task_id"], pair[f"method_{side}"]) for side in ("a", "b")}
+            if not skip and any(state["status"] != "ready" for state in media.values()):
+                raise APIError("视频尚未准备完成。", 409)
             db.execute(
-                "UPDATE pairs SET status=?,submitted_at=?,ratings=?,note=? WHERE id=?",
-                (status, now(), None if skip else json_text(scores), note, pair_id),
+                "UPDATE pairs SET status=?,submitted_at=?,ratings=?,note=?,watched=?,media_info=?,reasons=?,rating_origin=? WHERE id=?",
+                (status, now(), None if skip else json_text(scores), note,
+                 None if skip else json_text(body["watched"]), None if skip else json_text(media),
+                 None if skip else json_text(reasons), None if skip else "direct_overall", pair_id),
             )
 
 
@@ -458,13 +503,10 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/next":
                     self.json_response(self.study.public_pair(pid, self.study.draw(pid)))
                     return
-                match = re.fullmatch(r"/api/pairs/([a-f0-9-]{36})/(oq|ratings|skip)", path)
+                match = re.fullmatch(r"/api/pairs/([a-f0-9-]{36})/(ratings|skip)", path)
                 if match:
                     pair_id, action = match.groups()
-                    if action == "oq":
-                        self.study.save_oq(pid, pair_id, body)
-                    else:
-                        self.study.finish(pid, pair_id, body, skip=action == "skip")
+                    self.study.finish(pid, pair_id, body, skip=action == "skip")
                     self.json_response({"ok": True})
                     return
             else:
@@ -485,6 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                             "participant": person,
                             "task_count": len(self.study.tasks),
                             "metrics": METRICS,
+                            "reasons": REASONS,
                         }
                     )
                     return
@@ -588,7 +631,8 @@ def export_results(config_path, output):
     flat = []
     for record in records:
         row = dict(record)
-        for key in ("ratings", "watched", "media_info"):
+        for key in ("ratings", "watched", "media_info", "reasons", "legacy_ratings"):
+            row.setdefault(key, None)
             row[key] = json.loads(row[key]) if row[key] else None
         row["study_digest"] = study["digest"]
         for side in ("a", "b"):
@@ -598,7 +642,7 @@ def export_results(config_path, output):
         full.append(row)
         if row["status"] != "submitted":
             continue
-        for metric, value in {"OQ": row["oq"], **row["ratings"]}.items():
+        for metric, value in row["ratings"].items():
             flat.append(
                 {
                     "study_id": row["study_id"],
@@ -612,11 +656,13 @@ def export_results(config_path, output):
                     "run_b": row["run_b"],
                     "metric": metric,
                     "preference": value,
+                    "reasons": json_text(row["reasons"] or []),
+                    "rating_origin": row.get("rating_origin") or "legacy",
+                    "legacy_ratings": json_text(row["legacy_ratings"]),
                     "winner": row["method_a"] if value > 0 else row["method_b"] if value < 0 else "tie",
                     "proxy_a": row["media_info"]["a"]["proxy"],
                     "proxy_b": row["media_info"]["b"]["proxy"],
                     "created_at": row["created_at"],
-                    "oq_at": row["oq_at"],
                     "submitted_at": row["submitted_at"],
                     "note": row["note"],
                 }
@@ -634,11 +680,13 @@ def export_results(config_path, output):
         "run_b",
         "metric",
         "preference",
+        "reasons",
+        "rating_origin",
+        "legacy_ratings",
         "winner",
         "proxy_a",
         "proxy_b",
         "created_at",
-        "oq_at",
         "submitted_at",
         "note",
     ]
@@ -655,18 +703,21 @@ def export_results(config_path, output):
             )
     prefix.with_suffix(".study.json").write_text(json_text(snapshot) + "\n")
     print(
-        f"Exported {len(flat) // 5} completed comparisons; {len(full)} total records.\n{prefix}.csv\n{prefix}.jsonl\n{prefix}.study.json"
+        f"Exported {sum(r['status'] == 'submitted' for r in full)} completed comparisons; {len(full)} total records.\n{prefix}.csv\n{prefix}.jsonl\n{prefix}.study.json"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=["serve", "check", "prepare-media", "export"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "check", "prepare-media", "export", "migrate-overall"], default="serve")
     parser.add_argument("--config", default=str(BASE / "config.json"))
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--output", default=str(BASE / "exports"))
     args = parser.parse_args()
+    if args.command == "migrate-overall":
+        migrate_overall(args.config)
+        return
     if args.command == "export":
         export_results(args.config, args.output)
         return

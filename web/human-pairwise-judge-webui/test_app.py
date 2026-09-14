@@ -1,4 +1,4 @@
-"""Run: python -m unittest discover -s human-judge-webui -p 'test_*.py' -v"""
+"""Run: python -m unittest discover -s web/human-pairwise-judge-webui -p 'test_*.py' -v"""
 
 import importlib.util
 import json
@@ -55,11 +55,8 @@ class StudyTests(unittest.TestCase):
         for key, source in self.study.sources.items():
             self.study.media_states[key] = {"status": "ready", "path": source["path"], "proxy": False, "source": source}
 
-    def oq(self, pair_id, score=1):
-        self.study.save_oq(self.pid, pair_id, {"score": score, "watched": {"a": True, "b": True}})
-
     def ratings(self, pair_id):
-        self.study.finish(self.pid, pair_id, {"scores": {"IF": 1, "VQ": -2, "TC": 0, "NC": 2}, "note": "理由"})
+        self.study.finish(self.pid, pair_id, {"scores": {"OQ": 1}, "watched": {"a": True, "b": True}, "note": "理由"})
 
     def test_resume_and_concurrent_draw(self):
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -76,28 +73,59 @@ class StudyTests(unittest.TestCase):
         self.assertEqual(pair["task_id"], "task_002")
         self.assertNotEqual(pair["method_a"], pair["method_b"])
 
-    def test_oq_required_locked_and_idempotent(self):
+    def test_overall_ratings_are_idempotent(self):
         pair_id = self.study.draw(self.pid)
-        with self.assertRaises(app.APIError):
-            self.ratings(pair_id)
-        self.oq(pair_id)
-        self.oq(pair_id)
-        with self.assertRaises(app.APIError):
-            self.oq(pair_id, -1)
         self.ratings(pair_id)
         self.ratings(pair_id)
         self.assertEqual(self.study.public_pair(self.pid, pair_id)["completed"], 1)
         self.assertNotEqual(self.study.draw(self.pid), pair_id)
 
-    def test_score_and_watch_validation(self):
+    def test_score_validation(self):
         pair_id = self.study.draw(self.pid)
-        for bad in (True, 3, "1", None, 0.5):
+        for bad in (True, 2, -2, "1", None, 0.5):
             with self.assertRaises(app.APIError):
-                self.oq(pair_id, bad)
+                self.study.finish(self.pid, pair_id, {"scores": {"OQ": bad}, "watched": {"a": True, "b": True}})
+
+    def test_optional_reasons_and_retry_conflict(self):
+        pair_id = self.study.draw(self.pid)
+        for invalid in (["unknown"], ["IF", "IF"], "IF", [None]):
+            with self.assertRaises(app.APIError):
+                self.study.finish(self.pid, pair_id, {"scores": {"OQ": 1}, "reasons": invalid, "watched": {"a": True, "b": True}})
+        body = {"scores": {"OQ": -1}, "reasons": ["NC", "IF"], "watched": {"a": True, "b": True}}
+        self.study.finish(self.pid, pair_id, body)
+        self.study.finish(self.pid, pair_id, {**body, "reasons": ["IF", "NC"]})
         with self.assertRaises(app.APIError):
-            self.study.save_oq(self.pid, pair_id, {"score": 0, "watched": {"a": True, "b": False}})
-        self.oq(pair_id, 0)
-        self.assertEqual(self.study.pair(self.pid, pair_id)["oq"], 0)
+            self.study.finish(self.pid, pair_id, {**body, "reasons": []})
+
+    def test_all_legacy_vote_combinations(self):
+        from itertools import product
+        for values in product([-1, 0, 1], repeat=4):
+            scores = dict(zip(app.REASONS, values))
+            overall, reasons = app.derive_overall(scores)
+            a, b = values.count(1), values.count(-1)
+            expected = 1 if a > b else -1 if b > a else 0
+            self.assertEqual(overall, {"OQ": expected})
+            self.assertEqual(reasons, [k for k, v in scores.items() if expected != 0 and v == expected])
+
+    def test_migration_retains_raw_records_and_is_idempotent(self):
+        pair_id = self.study.draw(self.pid)
+        self.ratings(pair_id)
+        legacy = {"IF": -1, "VQ": 0, "TC": -1, "NC": 1}
+        snapshot = dict(self.study.snapshot)
+        snapshot["protocol"] = {"version": "pairwise-v2-vlm-four-metrics", "metrics": app.LEGACY_METRICS}
+        with closing(self.study.connect()) as db, db:
+            db.execute("UPDATE studies SET snapshot=?,digest=?", (app.json_text(snapshot), app.fingerprint(snapshot)))
+            db.execute("UPDATE pairs SET ratings=?,reasons=NULL,rating_origin=NULL WHERE id=?", (app.json_text(legacy), pair_id))
+        app.migrate_overall(self.config_path)
+        app.migrate_overall(self.config_path)
+        reopened = app.Study(self.config_path)
+        self.addCleanup(reopened.workers.shutdown)
+        pair = reopened.pair(self.pid, pair_id)
+        self.assertEqual(json.loads(pair["ratings"]), {"OQ": -1})
+        self.assertEqual(json.loads(pair["reasons"]), ["IF", "TC"])
+        self.assertEqual(json.loads(pair["legacy_ratings"]), legacy)
+        self.assertEqual(pair["rating_origin"], "derived_four_metrics")
+        self.assertEqual(pair["status"], "submitted")
 
     def test_skip_recorded_not_counted(self):
         pair_id = self.study.draw(self.pid)
@@ -131,6 +159,13 @@ class StudyTests(unittest.TestCase):
         Path(next(iter(self.study.sources.values()))["path"]).unlink()
         with self.assertRaisesRegex(ValueError, "Missing/empty"):
             app.Study(self.config_path)
+
+    def test_media_tool_falls_back_to_homebrew_path(self):
+        with patch.object(app.shutil, "which", return_value=None), patch.object(
+            app.Path, "is_file", return_value=True
+        ), patch.object(app.Path, "stat") as stat:
+            stat.return_value.st_mode = 0o755
+            self.assertEqual(app.media_tool("ffprobe"), "/opt/homebrew/bin/ffprobe")
 
     def test_media_preparation_preserves_compatible_source(self):
         key = next(iter(self.study.sources))
@@ -179,7 +214,6 @@ class StudyTests(unittest.TestCase):
     def test_export_keeps_method_direction_and_skips(self):
         pair_id = self.study.draw(self.pid)
         pair = self.study.pair(self.pid, pair_id)
-        self.oq(pair_id)
         self.ratings(pair_id)
         skipped = self.study.draw(self.pid)
         self.study.finish(self.pid, skipped, {"note": "error"}, skip=True)
@@ -188,13 +222,13 @@ class StudyTests(unittest.TestCase):
         records = [json.loads(line) for line in next(destination.glob("*.jsonl")).read_text().splitlines()]
         self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["method_a"], pair["method_a"])
-        self.assertEqual(records[0]["ratings"]["VQ"], -2)
+        self.assertEqual(records[0]["ratings"]["OQ"], 1)
         import csv
 
         with next(destination.glob("*.csv")).open(encoding="utf-8-sig") as file:
             rows = list(csv.DictReader(file))
-        self.assertEqual(len(rows), 5)
-        self.assertEqual(next(r for r in rows if r["metric"] == "VQ")["winner"], pair["method_b"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(next(r for r in rows if r["metric"] == "OQ")["winner"], pair["method_a"])
         self.assertTrue(next(destination.glob("*.study.json")).is_file())
 
     def test_http_range_privacy_origin_and_submit(self):
@@ -236,10 +270,8 @@ class StudyTests(unittest.TestCase):
         for endpoint in ("/config.json", "/data/judgments.sqlite3", "/../config.json"):
             with self.assertRaises(urllib.error.HTTPError):
                 request(endpoint)
-        with request(f"/api/pairs/{pair_id}/oq", body={"score": 0, "watched": {"a": True, "b": True}}) as response:
-            self.assertTrue(json.load(response)["ok"])
         with request(
-            f"/api/pairs/{pair_id}/ratings", body={"scores": {"IF": 2, "VQ": 1, "TC": -1, "NC": 0}}
+            f"/api/pairs/{pair_id}/ratings", body={"scores": {"OQ": 1}, "watched": {"a": True, "b": True}}
         ) as response:
             self.assertTrue(json.load(response)["ok"])
         with closing(self.study.connect()) as db:

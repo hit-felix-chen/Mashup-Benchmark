@@ -1,6 +1,6 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const labels = {2: "A 明显更好", 1: "A 略好", 0: "相当", "-1": "B 略好", "-2": "B 明显更好"};
+const labels = {1: "A 更好", 0: "相当", "-1": "B 更好"};
 let bootstrap, current, poll, busy = false;
 
 async function api(path, body) {
@@ -28,7 +28,7 @@ function metricQuestion(code) {
   legend.append(small, document.createTextNode(name));
   const p = document.createElement("p"); p.textContent = description;
   const choices = document.createElement("div"); choices.className = "choices";
-  for (const value of [2, 1, 0, -1, -2]) {
+  for (const value of [1, 0, -1]) {
     const label = document.createElement("label"); label.className = "choice";
     const input = document.createElement("input"); input.type = "radio"; input.name = code; input.value = value; input.required = true;
     input.addEventListener("change", () => { saveDraft(); updateButtons(); });
@@ -41,36 +41,38 @@ function selected(code) {
   return input ? Number(input.value) : null;
 }
 function draftKey() { return `human-judge:${bootstrap.study_id}:${bootstrap.participant.id}:${current.id}`; }
+function selectedReasons() { return [...document.querySelectorAll('input[name="reason"]:checked')].map(i => i.value); }
+function reasonOptions() {
+  const container = $("reason-options"); container.replaceChildren();
+  for (const code of ["IF", "VQ", "TC", "NC"]) {
+    const title = bootstrap.reasons[code];
+    const label = document.createElement("label"); label.className = "choice";
+    const input = document.createElement("input"); input.type = "checkbox"; input.name = "reason"; input.value = code;
+    input.addEventListener("change", saveDraft);
+    label.append(input, document.createTextNode(title)); container.append(label);
+  }
+}
 function saveDraft() {
   if (!current) return;
-  try { localStorage.setItem(draftKey(), JSON.stringify({scores: Object.fromEntries(Object.keys(bootstrap.metrics).map(k => [k, selected(k)])), note: $("note").value, watched: {a: $("watched-a").checked, b: $("watched-b").checked}})); } catch (_) { /* Server remains the durable source of submitted data. */ }
+  try { localStorage.setItem(draftKey(), JSON.stringify({scores: {OQ: selected("OQ")}, reasons: selectedReasons(), note: $("note").value, watched: {a: $("watched-a").checked, b: $("watched-b").checked}})); } catch (_) { /* Server remains the durable source of submitted data. */ }
 }
 function restoreDraft() {
   try {
     const draft = JSON.parse(localStorage.getItem(draftKey()) || "null");
     if (!draft) return;
     for (const [code, value] of Object.entries(draft.scores || {})) {
-      if (!Object.hasOwn(bootstrap.metrics, code) || ![-2,-1,0,1,2].includes(value)) continue;
+      if (!Object.hasOwn(bootstrap.metrics, code) || ![-1,0,1].includes(value)) continue;
       const input = document.querySelector(`input[name="${code}"][value="${value}"]`); if (input) input.checked = true;
     }
     $("note").value = draft.note || "";
+    for (const input of document.querySelectorAll('input[name="reason"]')) input.checked = (draft.reasons || []).includes(input.value);
     for (const side of ["a", "b"]) $(`watched-${side}`).checked = draft.watched?.[side] === true;
   } catch (_) { /* Ignore unavailable or stale local storage. */ }
 }
 function updateButtons() {
   const ready = current && ["a", "b"].every(s => current.media[s].status === "ready");
-  $("oq-submit").disabled = busy || !ready || !$("watched-a").checked || !$("watched-b").checked || selected("OQ") === null;
-  $("submit").disabled = busy || !current || current.oq === null || ["IF","VQ","TC","NC"].some(k => selected(k) === null);
+  $("submit").disabled = busy || !ready || !$("watched-a").checked || !$("watched-b").checked || selected("OQ") === null;
   document.querySelectorAll("#login-form button,#skip-form button,#logout").forEach(b => { b.disabled = busy; });
-}
-function applyStage() {
-  const detailed = current.oq !== null;
-  $("oq-form").hidden = detailed; $("details-form").hidden = !detailed;
-  $("step-title").textContent = detailed ? "再比较四个细项" : "先评价整体质量";
-  $("step-pill").textContent = detailed ? "步骤 2 / 2" : "步骤 1 / 2";
-  $("step-help").textContent = detailed ? "各指标独立判断；相同的两部成片，在不同方面可以各有优势。" : "整体判断提交后锁定，再展开四项细分指标。";
-  if (detailed) { $("locked-oq").textContent = `已保存整体质量：${labels[current.oq]} · 本项已锁定`; for (const side of ["a", "b"]) $(`watched-${side}`).checked = true; }
-  updateButtons();
 }
 function applyMedia() {
   for (const side of ["a", "b"]) {
@@ -109,10 +111,10 @@ async function nextPair() {
   $("source-title").textContent = t.source_title;
   $("bgm").textContent = `BGM：${t.bgm_title}${t.bgm_moods.length ? " · " + t.bgm_moods.join(" / ") : ""}`;
   $("count").textContent = `已完成 ${data.completed} 组`;
-  $("oq-question").replaceChildren(metricQuestion("OQ"));
-  $("detail-questions").replaceChildren(...["IF","VQ","TC","NC"].map(metricQuestion));
+  $("detail-questions").replaceChildren(metricQuestion("OQ"));
+  reasonOptions();
   $("note").value = ""; $("skip-reason").value = ""; document.querySelector(".skip").open = false;
-  restoreDraft(); applyStage(); applyMedia();
+  restoreDraft(); updateButtons(); applyMedia();
   if (Object.values(current.media).some(m => m.status === "preparing")) poll = setTimeout(() => pollMedia(data.id), 1000);
 }
 async function start() {
@@ -124,8 +126,7 @@ async function start() {
 }
 $("login-form").addEventListener("submit", e => { e.preventDefault(); action(async () => { await api("/api/session", {label: $("label").value}); notice(); await start(); }); });
 $("logout").addEventListener("click", () => action(async () => { saveDraft(); clearTimeout(poll); for (const s of ["a", "b"]) $(`video-${s}`).pause(); await api("/api/logout", {}); current = null; notice(); await start(); }));
-$("oq-form").addEventListener("submit", e => { e.preventDefault(); action(async () => { const score = selected("OQ"); await api(`/api/pairs/${current.id}/oq`, {score, watched: {a: $("watched-a").checked, b: $("watched-b").checked}}); current.oq = score; applyStage(); notice("整体质量已保存，请继续比较四个细项。"); }); });
-$("details-form").addEventListener("submit", e => { e.preventDefault(); action(async () => { await api(`/api/pairs/${current.id}/ratings`, {scores: Object.fromEntries(["IF","VQ","TC","NC"].map(k => [k, selected(k)])), note: $("note").value}); try { localStorage.removeItem(draftKey()); } catch (_) {} await nextPair(); notice("本组五项判断已保存。已为你抽取下一组。"); window.scrollTo({top: 0, behavior: "smooth"}); }); });
+$("details-form").addEventListener("submit", e => { e.preventDefault(); action(async () => { await api(`/api/pairs/${current.id}/ratings`, {scores: {OQ: selected("OQ")}, reasons: selectedReasons(), watched: {a: $("watched-a").checked, b: $("watched-b").checked}, note: $("note").value}); try { localStorage.removeItem(draftKey()); } catch (_) {} await nextPair(); notice("本组整体质量判断已保存。已为你抽取下一组。"); window.scrollTo({top: 0, behavior: "smooth"}); }); });
 $("skip-form").addEventListener("submit", e => { e.preventDefault(); action(async () => { await api(`/api/pairs/${current.id}/skip`, {note: $("skip-reason").value}); try { localStorage.removeItem(draftKey()); } catch (_) {} await nextPair(); notice("已记录跳过原因，并抽取下一组。"); window.scrollTo({top: 0, behavior: "smooth"}); }); });
 $("note").addEventListener("input", saveDraft);
 for (const side of ["a", "b"]) {

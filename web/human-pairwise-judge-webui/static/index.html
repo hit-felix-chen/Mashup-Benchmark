@@ -20,7 +20,7 @@
 
     <section id="welcome" class="welcome card" hidden>
       <div><span class="small-label">开始之前</span><h2>完整观看，独立判断。</h2>
-        <p>每轮随机抽取一个任务及两部成片。请使用耳机，分别完整观看 A、B；先判断整体质量，再比较四个细项。允许重播，质量相近时可以选择“相当”。</p>
+        <p>每轮随机抽取一个任务及两部成片。请使用耳机，分别完整观看 A、B，再判断整体质量。允许重播，质量相近时可以选择“相当”。</p>
         <p class="muted">选择比较偏好，无需计算平均分。提交会保存到服务器，刷新页面可继续未完成的一轮。</p>
       </div>
       <form id="login-form"><label for="label">你的标注者代号</label><input id="label" name="label" maxlength="64" placeholder="例如 annotator_01" required autocomplete="off"><p class="field-help">使用固定代号，无需填写真实姓名。同一浏览器会保留身份。</p><button class="primary" type="submit">开始评测 <span>→</span></button></form>
@@ -38,10 +38,13 @@
         <article class="player-card"><div class="player-top"><h2><span class="badge">B</span> 成片 B</h2><span id="time-b">—</span></div><div class="video-wrap"><video id="video-b" controls preload="metadata" playsinline></video><div id="media-b" class="media-message">准备视频中…</div></div><label class="watch-check"><input id="watched-b" type="checkbox">我已带声完整观看 B</label></article>
       </section>
       <section class="judging card">
-        <div class="judge-heading"><div><span class="small-label">02 / 记录判断</span><h2 id="step-title">先评价整体质量</h2></div><span class="step-pill" id="step-pill">步骤 1 / 2</span></div>
-        <p class="muted" id="step-help">整体判断提交后锁定，再展开四项细分指标。</p>
-        <form id="oq-form"><div id="oq-question"></div><div class="actions"><span class="action-hint">请先确认已完整观看两部成片</span><button id="oq-submit" type="submit" class="primary" disabled>确认整体判断 <span>→</span></button></div></form>
-        <form id="details-form" hidden><div id="locked-oq" class="locked"></div><div id="detail-questions"></div><label class="note-label" for="note">判断依据 <span>选填</span></label><textarea id="note" maxlength="2000" rows="2" placeholder="可简要记录关键差异，或判断中的不确定性。"></textarea><div class="actions"><span class="action-hint">四项均选择后即可提交</span><button type="submit" id="submit" class="primary" disabled>保存并抽取下一组 <span>→</span></button></div></form>
+        <div class="judge-heading"><div><span class="small-label">02 / 记录判断</span><h2>比较整体质量</h2></div><span class="step-pill">整体偏好</span></div>
+        <p class="muted">根据整体观看体验选择；质量相近时可以选择“相当”。</p>
+        <form id="details-form">
+          <div id="detail-questions"></div>
+          <fieldset class="question"><legend>你觉得该视频更好的原因（可多选或不选）</legend><div id="reason-options" class="choices reason-options"></div></fieldset>
+          <label class="note-label" for="note">判断依据 <span>选填</span></label><textarea id="note" maxlength="2000" rows="2" placeholder="可简要记录关键差异，或判断中的不确定性。"></textarea><div class="actions"><span class="action-hint">确认完整观看并选择整体偏好后即可提交</span><button type="submit" id="submit" class="primary" disabled>保存并抽取下一组 <span>→</span></button></div>
+        </form>
       </section>
       <details class="skip card"><summary>无法正常评价这一组？</summary><p class="muted">视频无法播放、内容异常或无法作出判断时，请填写原因后跳过。跳过记录会单独保存，不计入完成数。</p><form id="skip-form"><input id="skip-reason" aria-label="跳过原因" maxlength="2000" placeholder="请说明原因（必填）" required><button class="secondary" type="submit">记录原因并跳过</button></form></details>
       <footer>每轮独立随机抽样，可能再次遇到相同任务或组合。系统身份与自动分数对标注者隐藏。</footer>

@@ -1,7 +1,7 @@
 {
-  "study_id": "pairwise_overlap_beat_v1",
+  "study_id": "pairwise_overlap_beat_20260913",
   "title": "混剪视频 · 成对评测",
-  "benchmark_root": "..",
+  "benchmark_root": "../..",
   "task_manifest": "data/tasks/mashup_benchmark.jsonl",
   "task_ids": [],
   "database": "data/judgments.sqlite3",
@@ -15,6 +15,6 @@
     {"id": "narratoai", "name": "NarratoAI", "run_dir": "runs/narratoai_benchmark", "enabled": true},
     {"id": "openmontage", "name": "OpenMontage", "run_dir": "runs/openmontage_benchmark", "enabled": true},
     {"id": "videoagent", "name": "VideoAgent", "run_dir": "runs/videoagent_benchmark", "enabled": true},
-    {"id": "cutmaster", "name": "CutMaster", "run_dir": "runs/cutmaster_overlap_beat", "enabled": true}
+    {"id": "cutmaster", "name": "CutMaster", "run_dir": "runs/cutmaster-overlap-beat-2", "enabled": true}
   ]
 }
