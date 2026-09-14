@@ -44,7 +44,7 @@ function draftKey() { return `human-judge:${bootstrap.study_id}:${bootstrap.part
 function selectedReasons() { return [...document.querySelectorAll('input[name="reason"]:checked')].map(i => i.value); }
 function reasonOptions() {
   const container = $("reason-options"); container.replaceChildren();
-  for (const code of ["IF", "VQ", "TC", "NC"]) {
+  for (const code of ["IF", "VQ", "TC", "NC", "BCS", "AEC"]) {
     const title = bootstrap.reasons[code];
     const label = document.createElement("label"); label.className = "choice";
     const input = document.createElement("input"); input.type = "checkbox"; input.name = "reason"; input.value = code;

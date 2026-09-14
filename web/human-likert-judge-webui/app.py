@@ -67,7 +67,7 @@ class Study:
  def public(self,pid,rid):
   r=self.record(pid,rid);t=self.tasks[r["task_id"]]
   with closing(self.connect()) as db:n=db.execute("select count(*) from ratings where participant_id=? and study_id=? and status='submitted'",(pid,self.study_id)).fetchone()[0]
-  return {"id":rid,"status":r["status"],"completed":n,"media":{"url":f"/media/{rid}"},"task":{"id":r["task_id"],"prompt":t["task"]["prompt"],"domain":t["video"]["category"],"intent":t["task"].get("type_zh",t["task"]["type"]),"source_title":t["video"].get("title_zh",t["video"].get("title_en","")),"target_seconds":t["task"]["target_output_length_sec"],"bgm_title":t.get("audio",{}).get("title","")}}
+  return {"id":rid,"status":r["status"],"completed":n,"media":{"url":f"/media/{rid}?v={self.digest[:16]}"},"task":{"id":r["task_id"],"prompt":t["task"]["prompt"],"domain":t["video"]["category"],"intent":t["task"].get("type_zh",t["task"]["type"]),"source_title":t["video"].get("title_zh",t["video"].get("title_en","")),"target_seconds":t["task"]["target_output_length_sec"],"bgm_title":t.get("audio",{}).get("title","")}}
  def finish(self,pid,rid,body,skip=False):
   note=body.get("note","")
   if not isinstance(note,str) or len(note)>2000 or(skip and not note.strip()):raise APIError("跳过时需填写原因；备注不超过 2000 字。")

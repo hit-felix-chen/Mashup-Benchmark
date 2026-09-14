@@ -33,7 +33,7 @@ LEGACY_METRICS = {
     "NC": ["叙事连贯性", "哪部成片具有更清晰、连贯且符合提示词的结构、推进过程或故事／情绪弧线？"],
 }
 METRICS = {"OQ": ["视频整体质量", "综合观看体验，你认为哪部视频更好？"]}
-REASONS = {"IF": "遵循指令", "VQ": "画面美观", "TC": "转场丝滑", "NC": "叙事连贯"}
+REASONS = {"IF": "遵循指令", "VQ": "画面美观", "TC": "转场丝滑", "NC": "叙事连贯", "BCS": "视频卡点", "AEC": "音画协调"}
 PROTOCOL = {
     "version": "pairwise-v3-overall-reasons",
     "metrics": METRICS,
@@ -86,13 +86,13 @@ def ensure_overall_columns(db):
 
 
 def derive_overall(scores):
-    if not isinstance(scores, dict) or set(scores) != set(REASONS):
+    if not isinstance(scores, dict) or set(scores) != set(LEGACY_METRICS):
         raise ValueError("Expected four legacy metric preferences")
     if any(type(v) is not int or v not in (-1, 0, 1) for v in scores.values()):
         raise ValueError("Invalid legacy preference")
     votes = sum(scores.values())
     winner = (votes > 0) - (votes < 0)
-    return {"OQ": winner}, [k for k in REASONS if winner and scores[k] == winner]
+    return {"OQ": winner}, [k for k in LEGACY_METRICS if winner and scores[k] == winner]
 
 
 def migrate_overall(config_path):
@@ -363,7 +363,7 @@ class Study:
             state = self.prepare(pair["task_id"], pair[f"method_{side}"])
             media[side] = {
                 "status": state["status"],
-                "url": f"/media/{pair_id}/{side}",
+                "url": f"/media/{pair_id}/{side}?v={self.digest[:16]}",
                 "has_audio": state.get("has_audio", True),
             }
         with closing(self.connect()) as db:

@@ -10,11 +10,11 @@
   "port": 8765,
   "browser_proxies": true,
   "methods": [
-    {"id": "cutclaw", "name": "CutClaw", "run_dir": "runs/cutclaw_benchmark", "enabled": true},
+    {"id": "cutclaw", "name": "CutClaw", "run_dir": "runs/cutclaw-human-judge", "enabled": true},
     {"id": "direct_claw", "name": "DIRECT-Claw", "run_dir": "runs/direct_claw_benchmark", "enabled": true},
     {"id": "narratoai", "name": "NarratoAI", "run_dir": "runs/narratoai_benchmark", "enabled": true},
     {"id": "openmontage", "name": "OpenMontage", "run_dir": "runs/openmontage_benchmark", "enabled": true},
     {"id": "videoagent", "name": "VideoAgent", "run_dir": "runs/videoagent_benchmark", "enabled": true},
-    {"id": "cutmaster", "name": "CutMaster", "run_dir": "runs/cutmaster-overlap-beat-2", "enabled": true}
+    {"id": "cutmaster", "name": "CutMaster", "run_dir": "runs/cutmaster-overlap-beat-2-human-judge", "enabled": true}
   ]
 }
